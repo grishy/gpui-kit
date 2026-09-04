@@ -654,7 +654,9 @@ impl RenderOnce for Dialog {
                                                 Button::new("close")
                                                     .small()
                                                     .ghost()
-                                                    .icon(IconName::Close),
+                                                    .icon(IconName::Close)
+                                                    .accessibility_label(t!("Dock.Close"))
+                                                    .tooltip(t!("Dock.Close")),
                                             )
                                     }))
                                     .with_animation(
