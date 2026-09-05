@@ -21,6 +21,14 @@ pub trait ListDelegate: Sized + 'static {
         Task::ready(())
     }
 
+    /// Return the preferred keyboard cursor for the current search results.
+    ///
+    /// Called after search starts and again when its task completes. An absent or out-of-range
+    /// index falls back to the first item in the first non-empty section, or no selection.
+    fn preferred_selected_index(&self, _: &App) -> Option<IndexPath> {
+        None
+    }
+
     /// Return the number of sections in the list, default is 1.
     ///
     /// Min value is 1.
