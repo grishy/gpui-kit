@@ -792,7 +792,7 @@ where
 }
 
 #[cfg(test)]
-mod tests {
+mod search_cursor_tests {
     use super::*;
     use crate::list::ListItem;
     use gpui::TestAppContext;
