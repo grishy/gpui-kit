@@ -231,26 +231,64 @@ through motion alone.
 
 ## App Stories
 
-`AppsApp.vue` lists the applications people have shipped with the library — the
-strongest available answer to "is this real?", and the reason it sits in the
-navbar rather than inside the Resources menu. Submissions come from
-[discussion #989](https://github.com/longbridge/gpui-kit/discussions/989).
+`AppsApp.vue` lists reviewed applications built with GPUI Kit. Submit and review
+apps through PRs in [longbridge/gpui-kit-showcases](https://github.com/longbridge/gpui-kit-showcases).
 
-- **The screenshots are the authors' own published GitHub URLs**, used as
-  submitted. They must not be wrapped in `.mac-window`: most already contain a
-  real titlebar, and a second set of traffic lights around one turns a real
-  screenshot into a mock. A hairline frame and one shared 16:10 crop, anchored
-  to the top, is what makes a row of them align.
-- **Order is the only ranking.** It reads as editorial judgement — how complete
-  and shipped an app is first, GitHub traction second — and is maintained by
-  hand when an entry is added.
-- **No star counts.** A hard-coded number goes stale, and resolving one
-  repository per app at build time would exhaust the unauthenticated GitHub
-  rate limit that `src/lib/github.ts` already draws on for the single nav-bar
-  count. The facts a card does carry — platforms, open source or commercial,
-  whether it is still in development — do not expire.
-- Copy for both locales lives in one `copy` object plus a per-app
-  `blurb: { en, zh }`, so an entry cannot be added in one language only.
+- **Manifests are the source of truth.** Each app has `apps/<app-id>/manifest.json`
+  and local preview images in the Showcase repository. `author` and an English-only
+  `description` are required; the project link field is `website`. The Astro pages
+  load these at build time with `src/lib/showcases.ts` and pass serializable data
+  to the Vue app; no duplicated hard-coded app list.
+- **Screenshots show the complete window.** Authors must preserve all four corners
+  and edges in a clear, tidy capture. Images are archived unchanged and referenced
+  using raw GitHub URLs pinned to the checked-out commit. Cards use a shared 16:9
+  area with `object-fit: cover` and top-center positioning, filling the card edge
+  to edge. The archived image remains unchanged; previews may crop the bottom
+  or sides. Do not wrap them in
+  `.mac-window` or add a second title bar.
+- **Featured is editorial.** Maintainers list app IDs in the catalog's root
+  `featured.json` using project history, implementation, completeness, and quality.
+  The array defines both selection and display order; app manifests have no
+  `featured` field. Featured apps appear first, six per page, and keep their editorial order.
+  The heading shows the total selection count; pagination remains independent
+  of All apps filters.
+  All apps includes the entire catalog, including Featured, with nine apps per page.
+  Search, category, and sort changes return to page one. Its search, category
+  filters, and sorting controls live below the All apps heading and only affect
+  that section. Use the site’s neutral tokens and control radii for a compact,
+  thin-bordered search/filter panel, with counts at the trailing section edge.
+  The section and controls remain visible when no apps match. Failed or unavailable star
+  counts remain unknown and sort after known counts, never as invented zeroes.
+- **Card hierarchy.** Use image, name and author, description, platform/date row,
+  then a shared footer. Development status belongs beside the identity. Platform
+  text is unboxed on the left; dates use `YYYY/MM/DD` on the right. In the footer,
+  Commercial precedes the Lucide Star and compact count on the left. Globe and
+  GitHub icon links sit on the right with accessible names and tooltips. Do not
+  add an Open source label, Stars suffix, or Read story row; the image opens
+  available story details. Keep footer centers and colors aligned, and absorb
+  unequal description length before metadata so cards align within each row.
+- **Metadata freshness.** `publishedAt` records first inclusion in App Stories,
+  not the application's original release date, and remains unchanged for updates.
+  GitHub Stars are refreshed in the Showcase repository after merges and weekly,
+  then committed to manifests before dispatching the website release. Website
+  builds read these cached values. A failed lookup preserves prior values; missing
+  manifests or images fail the build, preventing a broken catalog deployment.
+- **Optional detail pages.** An app README enables `/apps/<id>` and its Chinese
+  route. The catalog’s shared Bun validator and renderer enforce the 10 KB limit,
+  official-link allowlist, local media and product-only content rules. The catalog
+  checkout’s locked dependencies must be installed before building.
+- **Review before publication.** Keep a labeled selection-policy disclosure before
+  the list explaining that every merged app PR is listed, Featured is not
+  guaranteed, and maintainers adjust Featured as apps evolve.
+  The submission CTA links to the repository's PR instructions.
+- **Automatic publishing.** On approved changes merged to Showcase `main`, its
+  workflow validates the catalog, updates and commits GitHub Stars, and dispatches GPUI Kit's `release-docs.yml`.
+  Release Docs checks out the latest Showcase `main` at `.showcases` and provides
+  `SHOWCASES_DIR` to the website build. The Showcase repository needs a dedicated
+  `DOCS_DISPATCH_TOKEN` secret with Actions: write on GPUI Kit.
+- **Local development.** Clone the Showcase repository at `../gpui-kit-showcases`
+  alongside GPUI Kit, or set `SHOWCASES_DIR` to an existing checkout. Local builds
+  read that checkout, allowing manifests and website changes to be tested together.
 
 ## Files
 

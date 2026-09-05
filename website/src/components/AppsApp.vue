@@ -4,6 +4,11 @@
             <span class="apps-kicker">{{ copy.kicker }}</span>
             <h1>{{ copy.title }}</h1>
             <p class="apps-lead">{{ copy.lead }}</p>
+            <details class="apps-policy">
+                <summary>{{ copy.selectionLabel }}</summary>
+                <p>{{ copy.selectionPolicy }}</p>
+                <p>{{ copy.rankingPolicy }}</p>
+            </details>
             <ul class="apps-signals">
                 <li><Boxes :size="15" /> {{ copy.signalCount }}</li>
                 <li><Monitor :size="15" /> macOS / Windows / Linux</li>
@@ -11,57 +16,105 @@
             </ul>
         </div>
 
-        <div class="apps-filter" role="group" :aria-label="copy.filterLabel">
-            <button
-                v-for="category in categories"
-                :key="category.id"
-                type="button"
-                class="apps-filter__chip"
-                :aria-pressed="String(category.id === active)"
-                @click="active = category.id"
-            >
-                {{ category.label }}
-                <span class="apps-filter__count">{{ category.count }}</span>
-            </button>
-        </div>
-
-        <div class="apps-grid">
-            <article v-for="app in visibleApps" :key="app.id" class="app-card">
-                <a
-                    class="app-card__shot"
-                    :href="app.site ?? app.source"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    :aria-label="app.name"
-                >
-                    <img :src="app.image" :alt="app.name" loading="lazy" decoding="async" />
-                </a>
-                <div class="app-card__body">
-                    <h3 class="app-card__name">{{ app.name }}</h3>
-                    <p class="app-card__blurb">{{ app.blurb[locale] }}</p>
-                    <ul class="app-card__meta">
-                        <li>{{ app.platforms.join(" / ") }}</li>
-                        <li>{{ app.source ? copy.openSource : copy.commercial }}</li>
-                        <li v-if="app.building">{{ copy.building }}</li>
-                    </ul>
-                    <div class="app-card__links">
-                        <a v-if="app.site" :href="app.site" target="_blank" rel="noopener noreferrer">
-                            {{ copy.visit }} <ArrowUpRight :size="13" />
-                        </a>
-                        <a v-if="app.source" :href="app.source" target="_blank" rel="noopener noreferrer">
-                            {{ copy.sourceLink }} <ArrowUpRight :size="13" />
-                        </a>
-                    </div>
+        <section v-for="section in sections" :key="section.id" class="apps-section" :aria-labelledby="`apps-${section.id}`">
+            <h2 :id="`apps-${section.id}`">{{ section.title }} <span>{{ section.total }}</span></h2>
+            <p class="apps-section__lead">{{ section.description }}</p>
+            <div v-if="section.id === 'all'" class="apps-browser">
+                <div class="apps-toolbar">
+                    <label class="apps-search">
+                        <span class="apps-field-label">{{ copy.searchLabel }}</span>
+                        <span class="apps-search__control">
+                            <Search aria-hidden="true" />
+                            <input v-model="query" type="search" :placeholder="copy.searchPlaceholder" />
+                        </span>
+                    </label>
+                    <AppSortSelect
+                        id="apps-sort"
+                        v-model="sort"
+                        class="apps-sort"
+                        :label="copy.sortLabel"
+                        :options="[{ value: 'newest', label: copy.newest }, { value: 'stars', label: copy.mostStars }]"
+                    />
                 </div>
-            </article>
-        </div>
+                <div class="apps-filter" role="group" :aria-label="copy.filterLabel">
+                    <button
+                        v-for="category in categories"
+                        :key="category.id"
+                        type="button"
+                        class="apps-filter__chip"
+                        :aria-pressed="String(category.id === active)"
+                        @click="active = category.id"
+                    >
+                        {{ category.label }}
+                        <span class="apps-filter__count">{{ category.count }}</span>
+                    </button>
+                    <button type="button" class="apps-reset" :disabled="!hasFilters" @click="clearFilters">{{ copy.clearFilters }}</button>
+                </div>
+                <p class="apps-results sr-only" role="status">{{ copy.results(filteredApps.length) }}</p>
+            </div>
+            <div class="apps-grid">
+                <article v-for="app in section.apps" :key="app.id" class="app-card">
+                    <a
+                        class="app-card__shot"
+                        :href="app.hasReadme ? detailUrl(app.id) : (app.website ?? app.source)"
+                        :target="app.hasReadme ? undefined : '_blank'"
+                        rel="noopener noreferrer"
+                        :aria-label="app.name"
+                    >
+                        <img :src="app.image" :alt="app.name" loading="lazy" decoding="async" />
+                    </a>
+                    <div class="app-card__body">
+                        <div class="app-card__header">
+                            <div class="app-card__identity">
+                                <h3 class="app-card__name">{{ app.name }}</h3>
+                                <p class="app-card__author">{{ app.author }}</p>
+                            </div>
+                            <span v-if="app.building" class="app-card__status">{{ copy.building }}</span>
+                        </div>
+                        <p class="app-card__blurb">{{ app.description }}</p>
+                        <div class="app-card__platform-row">
+                            <ul class="app-card__meta">
+                                <li>{{ app.platforms.join(" / ") }}</li>
+                            </ul>
+                            <time v-if="app.publishedAt" :datetime="app.publishedAt" :title="`${copy.published} ${formatDate(app.publishedAt)}`">{{ formatDate(app.publishedAt) }}</time>
+                        </div>
+                        <div class="app-card__footer">
+                            <div class="app-card__footer-start">
+                                <span v-if="!app.source" class="app-card__commercial">{{ copy.commercial }}</span>
+                                <span class="app-card__stats inline-flex items-center" role="img" v-if="app.stars !== null" :aria-label="`${app.stars.toLocaleString()} GitHub Stars`" :title="app.starsUpdatedAt ? `${copy.starsUpdated} ${app.starsUpdatedAt.slice(0, 10)}` : undefined"><Star aria-hidden="true" /><span>{{ formatStars(app.stars) }}</span></span>
+                            </div>
+                            <div class="app-card__links">
+                                <a v-if="app.website" class="app-card__icon-link" :href="app.website" :aria-label="`${app.name} — ${copy.visit}`" :title="copy.visit" target="_blank" rel="noopener noreferrer">
+                                    <Globe :size="16" aria-hidden="true" />
+                                </a>
+                                <a v-if="app.source" class="app-card__icon-link" :href="app.source" :aria-label="`${app.name} — ${copy.sourceLink}`" :title="copy.sourceLink" target="_blank" rel="noopener noreferrer">
+                                    <Github :size="16" aria-hidden="true" />
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </article>
+            </div>
+            <nav v-if="section.totalPages > 1" class="apps-pagination" :aria-label="section.id === 'featured' ? copy.featuredPagination : copy.allPagination">
+                <span class="apps-pagination__status" role="status">{{ copy.pageStatus(section.page, section.totalPages) }}</span>
+                <button type="button" :disabled="section.page === 1" :aria-label="copy.previousPage" :title="copy.previousPage" @click="setPage(section.id, section.page - 1)"><ChevronLeft aria-hidden="true" /></button>
+                <button v-for="page in section.totalPages" :key="page" type="button" :aria-label="copy.pageLabel(page)" :aria-current="section.page === page ? 'page' : undefined" @click="setPage(section.id, page)">{{ page }}</button>
+                <button type="button" :disabled="section.page === section.totalPages" :aria-label="copy.nextPage" :title="copy.nextPage" @click="setPage(section.id, section.page + 1)"><ChevronRight aria-hidden="true" /></button>
+            </nav>
+            <div v-if="section.id === 'all' && !filteredApps.length" class="apps-empty">
+                <SearchX aria-hidden="true" />
+                <h3>{{ copy.empty }}</h3>
+                <p>{{ copy.emptyHint }}</p>
+                <button type="button" @click="clearFilters">{{ copy.clearFilters }}</button>
+            </div>
+        </section>
 
         <div class="apps-cta">
             <h2>{{ copy.ctaTitle }}</h2>
             <p>{{ copy.ctaLead }}</p>
             <a
                 class="apps-cta__action"
-                href="https://github.com/longbridge/gpui-kit/discussions/989"
+                href="https://github.com/longbridge/gpui-kit-showcases#submit-an-app"
                 target="_blank"
                 rel="noopener noreferrer"
             >
@@ -72,48 +125,27 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import { ArrowRight, ArrowUpRight, Boxes, Github, Monitor } from "lucide-vue-next";
+import AppSortSelect from "./AppSortSelect.vue";
+import { selectShowcases, paginateFeatured, paginateAll } from "../lib/showcase-browser.ts";
+import { computed, ref, watch } from "vue";
+import { ArrowRight, Boxes, ChevronLeft, ChevronRight, Github, Globe, Monitor, Search, SearchX, Star } from "lucide-vue-next";
 
-const props = defineProps<{ lang: 'en' | 'zh-CN' }>();
+interface ShowcaseApp {
+    id: string; name: string; author: string; hasReadme: boolean; category: string; platforms: string[];
+    website: string | null; source: string | null; image: string;
+    description: string; building: boolean;
+    featured: boolean; publishedAt: string | null; stars: number | null; starsUpdatedAt: string | null;
+}
+
+const props = defineProps<{ lang: 'en' | 'zh-CN'; apps: ShowcaseApp[] }>();
+const apps = props.apps;
+const starFormatter = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
+const formatDate = (date: string) => date.slice(0, 10).replaceAll("-", "/");
+const formatStars = (stars: number) => starFormatter.format(stars);
+const detailUrl = (id: string) => `${props.lang === "zh-CN" ? "/zh-CN" : ""}/apps/${id}`;
 
 const isZh = computed(() => props.lang === 'zh-CN');
 const locale = computed(() => (isZh.value ? "zh" : "en"));
-
-const apps = [
-    { id: "longbridge-pro", name: "Longbridge Pro", category: "work", platforms: ["macOS", "Windows", "Linux"], site: "https://longbridge.com/desktop", source: null, image: "https://github.com/user-attachments/assets/4100dcc7-1316-4105-8ab2-ee6f84d95206", blurb: { en: "The trading desktop GPUI Kit was built for. Real-time quotes, charts and dense market data, shipped on all three platforms.", zh: "GPUI Kit 最初就是为它而生的交易桌面端。实时行情、图表与高密度市场数据，同时发布于三大平台。" } },
-    { id: "openlogi", name: "OpenLogi", category: "system", platforms: ["macOS", "Windows", "Linux"], site: "https://openlogi.org", source: "https://github.com/AprilNEA/OpenLogi", image: "https://github.com/user-attachments/assets/d7e42a74-a3c5-49bb-9719-cc450fcedbce", blurb: { en: "A local-first alternative to Logitech Options+. Remap buttons, DPI and SmartShift over HID++ — with no account and no telemetry.", zh: "Logitech Options+ 的本地优先替代品。通过 HID++ 重映射按键、DPI 与 SmartShift，无需账号，也没有遥测。" } },
-    { id: "zedis", name: "Zedis", category: "dev", platforms: ["macOS", "Windows", "Linux"], site: "https://zedis.net/", source: "https://github.com/vicanso/zedis", image: "https://raw.githubusercontent.com/vicanso/zedis/main/docs/images/key-browser.png", blurb: { en: "A native Redis GUI that opens a million-key database without a spinner: virtual-scrolled SCAN, typed value viewers, a memory analyzer and live metrics.", zh: "原生 Redis GUI，打开百万级键的数据库也不用等转圈：虚拟滚动的 SCAN、按类型定制的值查看器、内存分析与实时指标。" } },
-    { id: "tty7", name: "tty7", category: "terminal", platforms: ["macOS", "Linux"], site: null, source: "https://github.com/l0ng-ai/tty7", image: "https://github.com/user-attachments/assets/bae50352-bb22-46b8-8c45-c9c5dff1cd89", blurb: { en: "A terminal workbench in pure Rust: persistent sessions, SSH, remote work and coding agents, over Alacritty's VT core.", zh: "纯 Rust 编写的终端工作台：持久会话、SSH、远程办公与编码 Agent，VT 内核来自 Alacritty。" } },
-    { id: "omarchist", name: "Omarchist", category: "system", platforms: ["Omarchy Linux"], site: null, source: "https://github.com/tahayvr/omarchist", image: "https://raw.githubusercontent.com/tahayvr/omarchist/main/screenshots/omarchist-themes.png", blurb: { en: "The configuration and theme designer for Omarchy Linux, with visual theme editing, live previews and a built-in theme collection.", zh: "Omarchy Linux 的配置与主题设计工具，支持可视化主题编辑、实时预览，并内置一套主题集合。" } },
-    { id: "aloud-ink", name: "Aloud Ink", category: "work", platforms: ["macOS"], site: "https://aloud.ink/", source: null, image: "https://github.com/user-attachments/assets/5c2b5a5f-d4cc-4e8d-a72f-a298ac86bf23", blurb: { en: "A native macOS dictation app: hold a global shortcut to speak, release to get clean, filler-free text at your cursor in any app.", zh: "macOS 原生听写应用：按住全局快捷键说话，松开即在任意应用的光标处得到去掉语气词的干净文本。" } },
-    { id: "longbridge-lite", name: "Longbridge Lite", category: "work", platforms: ["macOS", "Windows", "Linux"], site: null, source: "https://github.com/longbridge/longbridge-lite", image: "https://github.com/user-attachments/assets/90f3a5b6-34c9-4a23-a9b4-864825cda4ef", blurb: { en: "A market-reading Longbridge client made for Omarchy, following its system theme and keyboard conventions — and the reference for running a JavaScript application natively through GPUI Shell.", zh: "为 Omarchy 定制的 Longbridge 行情客户端，跟随其系统主题与键盘约定；同时也是用 GPUI Shell 让 JavaScript 应用以原生方式运行的参考实现。" } },
-    { id: "openprocmon", name: "OpenProcMon", category: "dev", platforms: ["Windows"], site: null, source: "https://github.com/progmboy/openprocmon", image: "https://raw.githubusercontent.com/progmboy/openprocmon/master/docs/snapshots/main.png", blurb: { en: "An open-source Windows Process Monitor: a kernel miniFilter driver, Procmon-compatible PML capture and replay, and an MCP interface.", zh: "开源的 Windows Process Monitor：内核 miniFilter 驱动、兼容 Procmon 的 PML 抓取与回放，并提供 MCP 接口。" } },
-    { id: "dbflux", name: "DBFlux", category: "dev", platforms: ["macOS", "Windows", "Linux"], site: null, source: "https://github.com/0xErwin1/dbflux", image: "https://raw.githubusercontent.com/0xErwin1/dbflux/main/resources/dbflux.png", blurb: { en: "A keyboard-first database client for relational and non-relational stores, with charts, dashboards, Lua scripting and MCP integration.", zh: "键盘优先的数据库客户端，同时支持关系型与非关系型数据库，内置图表、仪表盘、Lua 脚本与 MCP 集成。" } },
-    { id: "scope", name: "Scope", category: "work", platforms: ["macOS", "Windows", "Linux"], site: null, source: "https://github.com/scopeclient/scope", image: "https://github.com/user-attachments/assets/0688be40-5f9b-4171-bc18-fef4e5fa2384", blurb: { en: "A native Discord client built for power users.", zh: "面向重度用户的原生 Discord 客户端。" } },
-    { id: "reviu", name: "Reviu", category: "dev", platforms: ["macOS", "Windows", "Linux"], site: "https://reviu.dev", source: "https://github.com/reviu-dev/reviu", image: "https://raw.githubusercontent.com/reviu-dev/reviu/main/website/src/assets/app_screenshots/git_dark.png", blurb: { en: "A keyboard-first Git client for reviewing AI-generated changes before you push, with GitHub pull requests, inline threads and AI briefs.", zh: "键盘优先的 Git 客户端，让你在推送前审阅 AI 生成的改动，支持 GitHub Pull Request、行内讨论与 AI 摘要。" } },
-    { id: "cadence", name: "Cadence", category: "work", platforms: ["macOS"], site: null, source: "https://github.com/infomiho/cadence", image: "https://raw.githubusercontent.com/infomiho/cadence/main/assets/cadence.webp", blurb: { en: "A minimal native Spotify player for macOS.", zh: "macOS 上的极简原生 Spotify 播放器。" } },
-    { id: "based", name: "Based", category: "dev", platforms: ["macOS", "Windows", "Linux"], site: "https://based.pavi2410.com", source: "https://github.com/pavi2410/based", image: "https://github.com/user-attachments/assets/e4b98277-2983-43da-8f52-6bc3cf411071", blurb: { en: "A local-first, Git-friendly database client. Connections and saved queries live in a committed .based/ directory, with no backend service.", zh: "本地优先、对 Git 友好的数据库客户端。连接配置与保存的查询都放在纳入版本库的 .based/ 目录里，无需后端服务。" } },
-    { id: "baudrun", name: "Baudrun", category: "terminal", platforms: ["macOS", "Windows", "Linux"], site: "https://packetthrower.github.io/Baudrun/", source: "https://github.com/packetThrower/Baudrun", image: "https://raw.githubusercontent.com/packetThrower/Baudrun/main/docs-next/public/screenshots/macos-dark-baudrun.png", blurb: { en: "A serial terminal for switch consoles and router CLIs, with saved device profiles, auto-reconnect, safe paste and XMODEM/YMODEM transfers.", zh: "面向交换机 Console 与路由器 CLI 的串口终端，支持设备配置、自动重连、安全粘贴与 XMODEM/YMODEM 传输。" } },
-    { id: "oxidal", name: "Oxidal", category: "terminal", platforms: ["macOS", "Windows", "Linux"], site: null, source: "https://github.com/sh4den/Oxidal", image: "https://github.com/user-attachments/assets/c4483678-4f32-4e09-86b2-ef6a7b4a83ec", blurb: { en: "A native SSH session manager for people who avoid Electron: organized connections, an integrated terminal and local-only configuration.", zh: "为不想用 Electron 的人准备的原生 SSH 会话管理器：分组连接、内置终端，配置全部保存在本地。" } },
-    { id: "nyx", name: "Nyx", category: "terminal", platforms: ["Windows", "Linux"], site: null, source: "https://github.com/BX-Team/Nyx", image: "https://raw.githubusercontent.com/BX-Team/Nyx/master/.github/branding/preview.png", blurb: { en: "A lightweight desktop GUI for the Mihomo proxy core, with profiles, proxy groups, rules, TUN mode and a connection inspector.", zh: "Mihomo 代理内核的轻量桌面 GUI，涵盖配置、代理组、规则、TUN 模式与连接检查器。" } },
-    { id: "hadron", name: "Hadron", category: "dev", platforms: ["macOS", "Windows", "Linux"], site: null, source: "https://github.com/s0lda/hadron", image: "https://raw.githubusercontent.com/s0lda/hadron/main/assets/demo_3.png", blurb: { en: "A multi-agent execution environment: isolated Git worktrees, an automatic merge gate, interactive terminals and per-agent telemetry.", zh: "多 Agent 执行环境：隔离的 Git worktree、自动合并闸门、交互式终端与逐 Agent 的运行指标。" } },
-    { id: "broquest", name: "Broquest", category: "dev", platforms: ["macOS", "Windows", "Linux"], site: null, source: "https://github.com/zanmato/broquest", image: "https://raw.githubusercontent.com/zanmato/broquest/main/docs/images/screenshot.webp", blurb: { en: "A local-first API client with JavaScript scripting and secrets management — an alternative to Postman, Insomnia and Bruno.", zh: "本地优先的 API 客户端，支持 JavaScript 脚本与密钥管理，可替代 Postman、Insomnia 与 Bruno。" } },
-    { id: "nohrs", name: "Nohrs", category: "system", platforms: ["macOS"], site: null, source: "https://github.com/noh-rs/nohrs", image: "https://raw.githubusercontent.com/noh-rs/nohrs/develop/assets/doc/screen-shot.jpeg", building: true, blurb: { en: "A Raycast-style launcher and a keyboard-driven file explorer in one Finder alternative, extensible with sandboxed WASM plugins and its own search index.", zh: "把 Raycast 式启动器与键盘驱动的文件浏览器合成一个 Finder 替代品，可用沙箱化的 WASM 插件扩展，并自带搜索索引。" } },
-    { id: "coop", name: "Coop", category: "work", platforms: ["macOS", "Windows", "Linux"], site: "https://coopchat.xyz", source: "https://git.reya.su/reya/coop", image: "https://github.com/user-attachments/assets/2bbdb5f0-944e-4ac2-9c30-a91912307d49", blurb: { en: "A Nostr direct-message app, built on a fork of the component library.", zh: "基于组件库分支构建的 Nostr 私信应用。" } },
-    { id: "piku", name: "Piku", category: "system", platforms: ["macOS", "Windows", "Linux"], site: null, source: "https://github.com/pikachuu184/Piku", image: "https://raw.githubusercontent.com/pikachuu184/Piku/main/assets/branding/Screenshot%20%2813%29.png", blurb: { en: "A fast, monochrome, keyboard-driven file manager with tabbed and split workspaces and rich previews for images, PDFs, code and archives.", zh: "快速的单色键盘驱动文件管理器，支持标签与分屏工作区，并为图片、PDF、代码与压缩包提供丰富预览。" } },
-    { id: "orrery", name: "Orrery", category: "dev", platforms: ["Linux"], site: "https://hankanman.github.io/Orrery/", source: "https://github.com/Hankanman/Orrery", image: "https://github.com/user-attachments/assets/ca69a657-8d13-416d-aa8f-ea15e12f4b90", building: true, blurb: { en: "A command center for every git repository in your dev directories: live status in one dense grid, host enrichment, on-device AI summaries, and one-click launch into an IDE or terminal agent.", zh: "面向 Git 仓库的指挥中心，把开发目录里的每个仓库汇总成一张高密度网格：实时状态、托管平台信息、本地 AI 摘要，一键在 IDE 或终端 Agent 中打开。" } },
-    { id: "protide", name: "Protide", category: "dev", platforms: ["macOS", "Linux"], site: null, source: "https://github.com/dreygur/protide", image: "https://raw.githubusercontent.com/dreygur/protide/main/screenshot.png", blurb: { en: "An API testing tool covering HTTP, GraphQL, WebSocket, gRPC, tRPC and Socket.IO, with mock servers and local-first P2P collaboration.", zh: "API 测试工具，覆盖 HTTP、GraphQL、WebSocket、gRPC、tRPC 与 Socket.IO，并支持 Mock 服务与本地优先的 P2P 协作。" } },
-    { id: "shouting-robin", name: "Shouting Robin", category: "dev", platforms: ["macOS", "Windows", "Linux"], site: null, source: "https://github.com/zanmato/shouting-robin", image: "https://raw.githubusercontent.com/zanmato/shouting-robin/main/docs/images/screenshot-dark.webp", blurb: { en: "An SEO crawler for e-commerce sites, crawling over plain HTTP or a real Chrome through spider-rs.", zh: "面向电商站点的 SEO 爬虫，可通过 spider-rs 使用纯 HTTP 或真实 Chrome 抓取。" } },
-    { id: "ferrispass", name: "FerrisPass", category: "system", platforms: ["macOS"], site: null, source: "https://github.com/elias-tilegant/ferrispass", image: "https://raw.githubusercontent.com/elias-tilegant/ferrispass/master/docs/img/sharepoint/01-welcome.jpeg", blurb: { en: "A KeePass-compatible password manager that reads and writes KDBX 4 vaults, with TOTP, Auto-Type, auto-lock and a headless CLI.", zh: "兼容 KeePass 的密码管理器，可读写 KDBX 4 保险库，支持 TOTP、Auto-Type、自动锁定与无界面 CLI。" } },
-    { id: "zenclash", name: "ZenClash", category: "terminal", platforms: ["macOS", "Windows", "Linux"], site: null, source: "https://github.com/HaiwenZhang/ZenClash", image: "https://github.com/user-attachments/assets/f9f0deb3-7bab-4288-87fb-aa5581bd59d1", blurb: { en: "A desktop client for the Mihomo proxy core.", zh: "Mihomo 代理内核的桌面客户端。" } },
-    { id: "kazeterm", name: "KazeTerm", category: "terminal", platforms: ["macOS", "Windows", "Linux"], site: null, source: "https://github.com/bikesheddev/kazeterm", image: "https://raw.githubusercontent.com/bikesheddev/kazeterm/master/assets/screenshots/Screenshot_2026-03-14.webp", building: true, blurb: { en: "A lightweight terminal inspired by Windows Terminal and built around Alacritty, with tabs, theme overlays and swappable terminal backends.", zh: "受 Windows Terminal 启发的轻量终端，基于 Alacritty 构建，支持标签、主题覆盖与可替换的终端后端。" } },
-    { id: "fulgur", name: "Fulgur", category: "dev", platforms: ["macOS", "Windows", "Linux"], site: "https://fulgur.app", source: "https://github.com/fulgur-app/Fulgur", image: "https://raw.githubusercontent.com/fulgur-app/Fulgur/main/assets/readme/fulgur_1.webp", blurb: { en: "A lightning-fast native text editor: syntax highlighting for 60+ languages, SSH remote editing, Markdown and CSV views, and end-to-end encrypted sync you can self-host.", zh: "轻快的原生文本编辑器：60+ 语言语法高亮、SSH 远程编辑、Markdown 与 CSV 视图，以及可自托管的端到端加密同步。" } },
-    { id: "setu", name: "Setu", category: "dev", platforms: ["macOS", "Windows", "Linux"], site: null, source: "https://github.com/bajrangCoder/setu", image: "https://raw.githubusercontent.com/bajrangCoder/setu/main/assets/demo.png", building: true, blurb: { en: "A minimal REST client with layered Global, Workspace and Project variables, multiple workspaces, Postman collection import and keyboard shortcuts throughout.", zh: "极简的 REST 客户端：Global / Workspace / Project 三层变量作用域、多工作区管理、Postman 集合导入，并全程支持键盘操作。" } },
-    { id: "steward", name: "Steward", category: "system", platforms: ["Windows"], site: null, source: "https://github.com/iFence/steward", image: "https://raw.githubusercontent.com/iFence/steward/master/assets/1.png", building: true, blurb: { en: "A small Windows launcher and plugin platform: a global hotkey, fuzzy search over a SQLite app index, and plugins written in JavaScript over JSON-RPC.", zh: "小巧的 Windows 启动器与插件平台：全局快捷键唤起、基于 SQLite 应用索引的模糊搜索，插件用 JavaScript 编写并通过 JSON-RPC 通信。" } },
-    { id: "pawse", name: "Pawse", category: "work", platforms: ["macOS", "Windows", "Linux"], site: null, source: "https://github.com/popovpsk/pawse", image: "https://raw.githubusercontent.com/popovpsk/pawse/main/.docs/screenshots/artists.webp", blurb: { en: "A native player for a local music library: bit-perfect playback matching sample rate and bit depth, FLAC through DSD, time-synced lyrics and a built-in web remote.", zh: "面向本地音乐库的原生播放器：匹配采样率与位深的 bit-perfect 播放，格式覆盖 FLAC 到 DSD，并支持逐行同步歌词与内置网页遥控。" } },
-    { id: "wsl2-hyperv-firewall-manager", name: "WSL2 Hyper-V Firewall Manager", category: "terminal", platforms: ["Windows 11"], site: null, source: "https://github.com/ssut/WSL2-HyperV-Firewall-Manager", image: "https://raw.githubusercontent.com/ssut/WSL2-HyperV-Firewall-Manager/main/docs/screenshot.png", blurb: { en: "A GUI for WSL2's Hyper-V firewall rules instead of hand-written PowerShell: automatic port discovery, a git-like draft-and-commit workflow and snapshot rollback.", zh: "用图形界面管理 WSL2 的 Hyper-V 防火墙规则，不必再手写 PowerShell：自动发现端口、类似 Git 的暂存与提交流程，以及可回滚的快照历史。" } },
-] as const;
 
 const CATEGORY_LABELS: Record<string, { en: string; zh: string }> = {
     all: { en: "All", zh: "全部" },
@@ -124,6 +156,14 @@ const CATEGORY_LABELS: Record<string, { en: string; zh: string }> = {
 };
 
 const active = ref("all");
+const query = ref("");
+const sort = ref("newest");
+const featuredPage = ref(1);
+const allPage = ref(1);
+watch([query, active, sort], () => { allPage.value = 1; });
+const featured = computed(() => paginateFeatured(apps, featuredPage.value));
+const hasFilters = computed(() => query.value.trim() !== "" || active.value !== "all");
+const clearFilters = () => { query.value = ""; active.value = "all"; };
 
 const categories = computed(() =>
     Object.entries(CATEGORY_LABELS).map(([id, label]) => ({
@@ -133,68 +173,137 @@ const categories = computed(() =>
     })),
 );
 
-const visibleApps = computed(() =>
-    active.value === "all" ? [...apps] : apps.filter((a) => a.category === active.value),
-);
+const filteredApps = computed(() => selectShowcases(
+    apps,
+    { query: query.value, category: active.value, sort: sort.value },
+).all);
+const all = computed(() => paginateAll(filteredApps.value, allPage.value));
+const sections = computed(() => [
+    { id: "featured", title: copy.value.featured, description: copy.value.featuredLead, ...featured.value },
+    { id: "all", title: copy.value.community, description: copy.value.communityLead, ...all.value },
+].filter(section => section.id === "all" || section.apps.length));
+
+function setPage(section: string, page: number) {
+    if (section === "featured") featuredPage.value = page;
+    else allPage.value = page;
+}
 
 const copy = computed(() =>
     isZh.value
-        ? { kicker: "应用案例", title: "用 GPUI Kit 做出来的真实应用。", lead: "下面每一个都基于 GPUI Kit 构建，是人们真正下载并每天使用的桌面软件——从生产环境的交易终端，到数据库客户端、终端与系统工具。", signalCount: `${apps.length} 个应用`, signalLicense: "开源与商业产品", filterLabel: "按类别筛选", openSource: "开源", commercial: "商业产品", building: "开发中", visit: "官网", sourceLink: "源码", ctaTitle: "你也用 GPUI Kit 做了应用？", ctaLead: "把它发到 Showcase 讨论区，就有机会出现在这个页面上。", ctaAction: "提交你的应用" }
-        : { kicker: "App Stories", title: "Real apps, shipped with GPUI Kit.", lead: "Every app below is built on GPUI Kit — desktop software people download and use every day, from a production trading terminal to database clients, terminals and system utilities.", signalCount: `${apps.length} apps`, signalLicense: "Open source and commercial", filterLabel: "Filter by category", openSource: "Open source", commercial: "Commercial", building: "In development", visit: "Website", sourceLink: "Source", ctaTitle: "Built something with GPUI Kit?", ctaLead: "Post it in the showcase discussion and it can appear on this page.", ctaAction: "Submit your app" },
+        ? { featuredPagination: "精选应用分页", allPagination: "全部应用分页", previousPage: "上一页", nextPage: "下一页", pageLabel: (page: number) => `第 ${page} 页`, pageStatus: (page: number, total: number) => `第 ${page} / ${total} 页`, selectionLabel: "应用收录与精选规则", emptyHint: "试试其他关键词或分类。", starsUpdated: "Stars 更新于", featured: "Featured · 精选应用", featuredLead: "由维护者挑选，展示完整、优质的应用案例。", community: "全部应用", communityLead: "探索社区应用，找到适合你的工具。GitHub Stars 每周及案例 PR 合并后更新。", searchLabel: "搜索应用", searchPlaceholder: "名称、作者、平台…", sortLabel: "应用排序", newest: "最新发布", mostStars: "GitHub Stars 最多", published: "发布于", results: (count: number) => `找到 ${count} 个应用`, empty: "没有找到匹配的应用。", clearFilters: "清除筛选", kicker: "应用案例", title: "用 GPUI Kit 做出来的真实应用。", lead: "探索基于 GPUI Kit 构建的桌面应用，从交易终端、开发工具到日常效率软件。", selectionPolicy: "向 Showcase 仓库提交 PR，审核合并后，应用都会列在 App Stories 中，但不保证进入 Featured。", rankingPolicy: "Featured 由维护者结合项目历史、实现情况、完整度与品质挑选。我们会根据各应用后续更新和整体情况微调名单，尽量展示更完整、有代表性的应用。全部应用可按发布时间或 GitHub Stars 排序，也可搜索。", signalCount: `${apps.length} 个应用`, signalLicense: "开源与商业产品", filterLabel: "按类别筛选", commercial: "商业产品", building: "开发中", visit: "官网", sourceLink: "源码", ctaTitle: "你也用 GPUI Kit 做了应用？", ctaLead: "请在 Showcase 仓库提交 PR，包含应用清单和清晰、完整、整洁的窗口截图。审核合并后自动列在本页，Featured 由维护者另行挑选。", ctaAction: "提交你的应用" }
+        : { featuredPagination: "Featured apps pagination", allPagination: "All apps pagination", previousPage: "Previous page", nextPage: "Next page", pageLabel: (page: number) => `Page ${page}`, pageStatus: (page: number, total: number) => `Page ${page} of ${total}`, selectionLabel: "How apps are selected", emptyHint: "Try another keyword or category.", starsUpdated: "Stars updated", featured: "Featured", featuredLead: "Complete, carefully crafted apps selected by the maintainers.", community: "All apps", communityLead: "Explore apps from the community. GitHub Stars refresh weekly and after Showcase PRs merge.", searchLabel: "Search apps", searchPlaceholder: "Name, author, platform…", sortLabel: "Sort apps", newest: "Newest published", mostStars: "Most GitHub Stars", published: "Published", results: (count: number) => `${count} ${count === 1 ? "app" : "apps"} found`, empty: "No apps match your search.", clearFilters: "Clear filters", kicker: "App Stories", title: "Real apps, shipped with GPUI Kit.", lead: "Explore desktop apps built with GPUI Kit, from trading terminals and developer tools to everyday productivity software.", selectionPolicy: "Every app accepted through a merged PR in the Showcase repository is listed in App Stories. A listing does not guarantee a place in Featured.", rankingPolicy: "Maintainers select Featured apps based on project history, implementation, completeness and quality, and revisit the selection as apps evolve to highlight complete, representative examples. Browse all apps by publication date or GitHub Stars, or search the collection.", signalCount: `${apps.length} apps`, signalLicense: "Open source and commercial", filterLabel: "Filter by category", commercial: "Commercial", building: "In development", visit: "Website", sourceLink: "Source", ctaTitle: "Built something with GPUI Kit?", ctaLead: "Open a PR in the Showcase repository with your app manifest and clear, complete, tidy window screenshots. Every merged app PR is published here automatically; maintainers select Featured apps separately.", ctaAction: "Submit your app" },
 );
 </script>
 
-<style>
-.apps-page { color: var(--foreground); }
-
-.apps-hero { max-width: 46rem; margin-bottom: clamp(2.5rem, 5vw, 3.5rem); }
-
-.apps-kicker {
-    display: block; margin-bottom: 0.9rem;
-    color: var(--muted-foreground);
-    font: 600 0.68rem/1 var(--font-mono);
-    letter-spacing: 0.14em; text-transform: uppercase;
+<style scoped>
+.apps-page {
+    --apps-space-1: 0.25rem;
+    --apps-space-2: 0.5rem;
+    --apps-space-3: 0.75rem;
+    --apps-space-4: 1rem;
+    --apps-space-6: 1.5rem;
+    --apps-space-8: 2rem;
+    --apps-meta-size: 0.8125rem;
+    color: var(--foreground);
 }
 
-html[lang^="zh"] .apps-kicker { letter-spacing: 0.06em; }
+.apps-hero { max-width: 46rem; margin-bottom: 2.5rem; }
+.apps-kicker { display: block; margin-bottom: var(--apps-space-4); color: var(--muted-foreground); font: 600 0.6875rem/1 var(--font-mono); letter-spacing: 0.14em; text-transform: uppercase; }
+.apps-hero h1 { margin: 0; padding: 0; border: 0; font-size: clamp(2rem, 3.6vw, 3rem); font-weight: 660; letter-spacing: -0.045em; line-height: 1.15; text-wrap: balance; }
+.apps-lead { margin: var(--apps-space-4) 0 0; color: var(--muted-foreground); font-size: 1rem; line-height: 1.65; }
+.apps-policy { margin: var(--apps-space-4) 0 0; color: var(--muted-foreground); font-size: 0.875rem; }
+.apps-policy summary { width: fit-content; cursor: pointer; border-radius: var(--radius-control); }
+.apps-policy summary:hover { color: var(--foreground); }
+.apps-policy p { margin: var(--apps-space-3) 0 0; line-height: 1.6; }
+.apps-signals { display: flex; flex-wrap: wrap; gap: var(--apps-space-2) var(--apps-space-6); margin: var(--apps-space-4) 0 0; padding: 0; list-style: none; color: var(--muted-foreground); font-size: var(--apps-meta-size); font-variant-numeric: tabular-nums; }
+.apps-signals li { display: inline-flex; align-items: center; gap: var(--apps-space-2); margin: 0; line-height: 1.5; }
+.apps-signals svg { flex-shrink: 0; width: 1rem; height: 1rem; }
 
-.apps-hero h1 { margin: 0; border: 0; padding: 0; font-size: clamp(2rem, 3.6vw, 3rem); font-weight: 660; letter-spacing: -0.045em; line-height: 1.1; }
-html[lang^="zh"] .apps-hero h1 { letter-spacing: normal; }
-.apps-lead { margin: 1.1rem 0 0; color: var(--muted-foreground); font-size: 1.05rem; line-height: 1.7; }
+.apps-section + .apps-section { margin-top: 3rem; border-top: 1px solid var(--border); padding-top: var(--apps-space-8); }
+.apps-section h2 { display: flex; align-items: baseline; justify-content: space-between; gap: var(--apps-space-4); margin: 0; padding: 0; border: 0; font-size: 1.5rem; font-weight: 620; line-height: 1.3; }
+.apps-section h2 span { flex-shrink: 0; color: var(--muted-foreground); font-size: 0.875rem; font-weight: 400; font-variant-numeric: tabular-nums; }
+.apps-section__lead { margin: var(--apps-space-2) 0 var(--apps-space-6); color: var(--muted-foreground); font-size: 0.875rem; line-height: 1.5; }
+.apps-browser { margin-bottom: var(--apps-space-6); border: 1px solid var(--border); border-radius: var(--radius-card); }
+.apps-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: var(--apps-space-2); padding: var(--apps-space-2); border-bottom: 1px solid var(--border); }
+.apps-search { flex: 0 1 20rem; min-width: 0; }
+.apps-sort { flex: 0 1 12rem; min-width: 0; }
+.apps-field-label { display: block; margin-bottom: 0.375rem; font-size: 0.75rem; font-weight: 550; line-height: 1; }
+.apps-search__control { display: block; position: relative; }
+.apps-toolbar input { width: 100%; height: 2rem; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); color: var(--foreground); padding: var(--apps-space-1) var(--apps-space-2); font: inherit; font-size: var(--apps-meta-size); line-height: 1.5; }
+.apps-search__control input { padding-left: 2rem; }
+.apps-search__control > svg { position: absolute; top: 50%; transform: translateY(-50%); width: 0.875rem; height: 0.875rem; color: var(--muted-foreground); pointer-events: none; }
+.apps-search__control > svg { left: 0.625rem; }
+.apps-toolbar input:hover { border-color: var(--brand-line); }
+.apps-filter { display: flex; flex-wrap: wrap; align-items: center; gap: var(--apps-space-1); padding: var(--apps-space-2); }
+.apps-filter__chip { display: inline-flex; align-items: center; gap: var(--apps-space-2); min-height: 1.75rem; border: 1px solid var(--border); border-radius: var(--radius-control); padding: 0.125rem var(--apps-space-2); color: var(--muted-foreground); font-size: var(--apps-meta-size); line-height: 1.5; cursor: pointer; }
+.apps-filter__chip:hover { background: var(--secondary); color: var(--foreground); }
+.apps-filter__chip[aria-pressed="true"] { border-color: var(--brand-line); background: var(--secondary); color: var(--foreground); }
+.apps-filter__count { font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+.apps-results { margin: 0; color: var(--muted-foreground); font-size: var(--apps-meta-size); line-height: 1.5; }
+.apps-reset { margin-left: auto; min-height: 1.75rem; border-radius: var(--radius-control); padding: var(--apps-space-1) var(--apps-space-2); color: var(--muted-foreground); font-size: var(--apps-meta-size); cursor: pointer; }
+.apps-reset:disabled { opacity: 0.4; cursor: default; }
+.apps-reset:hover:not(:disabled) { color: var(--foreground); background: var(--secondary); }
+.apps-empty { display: flex; flex-direction: column; align-items: center; gap: var(--apps-space-3); padding: 3rem var(--apps-space-4); border: 1px dashed var(--border); border-radius: var(--radius-card); text-align: center; }
+.apps-empty > svg { width: 1.5rem; height: 1.5rem; color: var(--muted-foreground); }
+.apps-empty h3 { margin: 0; font-size: 1rem; font-weight: 550; line-height: 1.5; }
+.apps-empty p { margin: 0; color: var(--muted-foreground); font-size: 0.875rem; line-height: 1.5; }
+.apps-empty button { margin-top: var(--apps-space-1); min-height: 2.25rem; padding: var(--apps-space-2) var(--apps-space-3); border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--card); font-size: 0.875rem; cursor: pointer; }
+.apps-empty button:hover { background: var(--secondary); }
 
-.apps-signals { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; margin: 1.6rem 0 0; padding: 0; list-style: none; color: var(--muted-foreground); font-size: 0.85rem; font-variant-numeric: tabular-nums; }
-.apps-signals li { display: inline-flex; align-items: center; gap: 0.45rem; margin: 0; }
+.apps-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: end; gap: var(--apps-space-1); margin-top: var(--apps-space-4); }
+.apps-pagination__status { margin-right: auto; color: var(--muted-foreground); font-size: var(--apps-meta-size); font-variant-numeric: tabular-nums; }
+.apps-pagination button { display: inline-flex; align-items: center; justify-content: center; min-width: 2rem; height: 2rem; border: 1px solid transparent; border-radius: var(--radius-control); font-size: var(--apps-meta-size); cursor: pointer; }
+.apps-pagination button:hover:not(:disabled) { background: var(--secondary); }
+.apps-pagination button[aria-current="page"] { border-color: var(--border); background: var(--secondary); }
+.apps-pagination button:disabled { opacity: 0.4; cursor: default; }
+.apps-pagination svg { width: 1rem; height: 1rem; }
 
-.apps-filter { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.75rem; border-top: 1px solid var(--border); padding-top: 1.75rem; }
+.apps-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(20rem, 100%), 1fr)); gap: var(--apps-space-4); }
+.app-card { display: flex; flex-direction: column; min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--card); }
+.app-card:hover { border-color: var(--brand-line); }
+.app-card__shot { display: block; flex-shrink: 0; border-bottom: 1px solid var(--border); background: var(--secondary); }
+.app-card__shot:focus-visible { outline-offset: -2px; }
+.app-card__shot img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; object-position: top center; }
+.app-card__body { display: flex; flex: 1; flex-direction: column; min-width: 0; padding: var(--apps-space-4) var(--apps-space-4) var(--apps-space-2); overflow-wrap: anywhere; }
+.app-card__header { display: flex; align-items: start; justify-content: space-between; gap: var(--apps-space-3); }
+.app-card__identity { min-width: 0; }
+.app-card__name { margin: 0; border: 0; padding: 0; font-size: 1.0625rem; font-weight: 620; letter-spacing: -0.015em; line-height: 1.3; }
+.app-card__author { margin: var(--apps-space-1) 0 0; color: var(--muted-foreground); font-size: var(--apps-meta-size); line-height: 1.5; }
+.app-card__status { flex-shrink: 0; margin-top: 0; border: 1px solid var(--border); border-radius: var(--radius-control); padding: 0 var(--apps-space-2); color: var(--muted-foreground); font-size: 0.75rem; line-height: 1.75; }
+.app-card__blurb { margin: var(--apps-space-3) 0 auto; padding-bottom: var(--apps-space-4); color: var(--foreground); font-size: 0.875rem; line-height: 1.5; }
+.app-card__platform-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--apps-space-2); margin-bottom: var(--apps-space-3); color: var(--muted-foreground); font-size: var(--apps-meta-size); line-height: 1.5; }
+.app-card__platform-row > time { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.app-card__meta { min-width: 0; display: flex; flex-wrap: wrap; gap: var(--apps-space-2); margin: 0; padding: 0; list-style: none; }
+.app-card__meta li { margin: 0; padding: 0; line-height: inherit; }
+.app-card__footer { display: flex; align-items: center; justify-content: space-between; gap: var(--apps-space-2); border-top: 1px solid var(--border); padding-top: var(--apps-space-2); color: var(--muted-foreground); font-size: var(--apps-meta-size); line-height: 1; min-height: 2.5rem; }
+.app-card__footer-start { display: flex; flex-wrap: wrap; align-items: center; gap: var(--apps-space-3); min-width: 0; }
+.app-card__commercial, .app-card__stats { display: inline-flex; align-items: center; gap: var(--apps-space-1); min-height: 2rem; }
+.app-card__stats { font-variant-numeric: tabular-nums; }
+/* Numeral ink sits above its line-box center; align it optically with the star. */
+.app-card__stats > span { display: inline-flex; align-items: center; height: 1rem; line-height: 1; transform: translateY(0.03125rem); }
+.app-card__links { display: flex; flex-shrink: 0; align-items: center; gap: var(--apps-space-1); }
+.app-card__icon-link { display: inline-flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; border-radius: var(--radius-control); color: inherit; text-decoration: none; }
+.app-card__icon-link:hover { color: var(--foreground); background: var(--secondary); }
+.app-card__stats svg, .app-card__links svg { display: block; flex-shrink: 0; width: 1rem; height: 1rem; }
 
-.apps-filter__chip { display: inline-flex; align-items: center; gap: 0.45rem; border: 1px solid var(--border); border-radius: 999px; padding: 0.35rem 0.85rem; color: var(--foreground); font-size: 0.85rem; line-height: 1.4; cursor: pointer; transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease; }
-.apps-filter__chip:hover { background: var(--secondary); }
-.apps-filter__chip[aria-pressed="true"] { border-color: var(--brand); background: var(--brand); color: var(--brand-contrast); }
-.apps-filter__count { color: var(--muted-foreground); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
-.apps-filter__chip[aria-pressed="true"] .apps-filter__count { color: var(--brand-contrast); opacity: 0.65; }
-
-.apps-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(20rem, 100%), 1fr)); gap: 1.5rem; }
-
-.app-card { display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--card); transition: border-color 0.18s ease, box-shadow 0.18s ease; }
-.app-card:hover { border-color: var(--brand-line); box-shadow: var(--shadow-raise); }
-.app-card__shot { display: block; border-bottom: 1px solid var(--border); background: var(--secondary); }
-.app-card__shot img { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top center; }
-.app-card__body { display: flex; flex: 1; flex-direction: column; padding: 1.15rem 1.25rem 1.25rem; }
-.app-card__name { margin: 0; border: 0; padding: 0; font-size: 1.05rem; font-weight: 620; letter-spacing: -0.015em; line-height: 1.3; }
-html[lang^="zh"] .app-card__name { letter-spacing: normal; }
-.app-card__blurb { margin: 0.55rem 0 auto; padding-bottom: 1rem; color: var(--muted-foreground); font-size: 0.875rem; line-height: 1.65; }
-.app-card__meta { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0 0 0.9rem; padding: 0; list-style: none; }
-.app-card__meta li { margin: 0; border: 1px solid var(--border); border-radius: var(--radius-control); padding: 0.15rem 0.45rem; color: var(--muted-foreground); font-size: 0.72rem; line-height: 1.5; white-space: nowrap; }
-.app-card__links { display: flex; flex-wrap: wrap; gap: 1rem; border-top: 1px solid var(--border); padding-top: 0.9rem; }
-.app-card__links a { display: inline-flex; align-items: center; gap: 0.2rem; color: var(--foreground); font-size: 0.85rem; font-weight: 500; text-decoration: none; transition: opacity 0.15s ease; }
-.app-card__links a:hover { opacity: 0.66; }
-
-.apps-cta { margin-top: clamp(3rem, 6vw, 4.5rem); border-top: 1px solid var(--border); padding-top: clamp(2rem, 4vw, 3rem); }
-.apps-cta h2 { margin: 0; border: 0; padding: 0; font-size: 1.4rem; font-weight: 640; letter-spacing: -0.02em; line-height: 1.3; }
-html[lang^="zh"] .apps-cta h2 { letter-spacing: normal; }
-.apps-cta p { margin: 0.6rem 0 1.3rem; color: var(--muted-foreground); font-size: 0.95rem; line-height: 1.7; }
-.apps-cta__action { display: inline-flex; align-items: center; gap: 0.4rem; border-radius: var(--radius-control); background: var(--brand); padding: 0.55rem 1.1rem; color: var(--brand-contrast); font-size: 0.9rem; font-weight: 500; text-decoration: none; transition: background-color 0.15s ease; }
-.apps-cta__action:hover { background: var(--brand-hover); }
-
-@media (max-width: 640px) { .apps-grid { gap: 1.15rem; } }
+.apps-cta { display: flex; flex-direction: column; align-items: start; gap: var(--apps-space-3); margin-top: 3rem; padding-top: var(--apps-space-8); border-top: 1px solid var(--border); }
+.apps-cta h2 { margin: 0; padding: 0; border: 0; font-size: 1.375rem; font-weight: 620; letter-spacing: -0.02em; line-height: 1.3; }
+.apps-cta p { margin: 0; max-width: 46rem; color: var(--muted-foreground); font-size: 0.875rem; line-height: 1.6; }
+.apps-cta__action { display: inline-flex; align-items: center; gap: var(--apps-space-2); margin-top: var(--apps-space-1); min-height: 2.5rem; border: 1px solid var(--border); border-radius: var(--radius-control); padding: var(--apps-space-2) var(--apps-space-4); color: var(--foreground); background: var(--card); font-size: 0.875rem; font-weight: 500; text-decoration: none; }
+.apps-cta__action:hover { background: var(--secondary); }
+.apps-cta__action svg { width: 1rem; height: 1rem; }
+.apps-page :is(a, button, input, select, summary):focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.apps-page .app-card__shot:focus-visible { outline-offset: -2px; }
+.apps-page button:active, .app-card__icon-link:active { background: var(--secondary); color: var(--foreground); }
+:global(html[lang^="zh"]) :is(.apps-hero h1, .app-card__name, .apps-cta h2) { letter-spacing: normal; }
+:global(html[lang^="zh"]) .apps-kicker { letter-spacing: 0.06em; }
+@media (prefers-reduced-motion: no-preference) {
+    .app-card { transition: border-color 150ms ease; }
+    .app-card__icon-link, .apps-filter__chip, .apps-reset, .apps-cta__action { transition: background-color 150ms ease, color 150ms ease; }
+}
+@media (max-width: 640px) {
+    .apps-search { flex: 1 1 15rem; }
+    .apps-sort { flex: 1 1 11rem; }
+    .apps-section + .apps-section { margin-top: var(--apps-space-8); }
+}
 </style>
