@@ -1,4 +1,7 @@
-use gpui::{AnyElement, App, Context, IntoElement, ParentElement as _, Styled as _, Task, Window};
+use gpui::{
+    AnyElement, App, Context, IntoElement, ParentElement as _, SharedString, Styled as _, Task,
+    Window,
+};
 
 use crate::{
     ActiveTheme as _, Icon, IconName, IndexPath, Selectable, h_flex,
@@ -26,6 +29,13 @@ pub trait ListDelegate: Sized + 'static {
     /// Called after search starts and again when its task completes. An absent or out-of-range
     /// index falls back to the first item in the first non-empty section, or no selection.
     fn preferred_selected_index(&self, _: &App) -> Option<IndexPath> {
+        None
+    }
+
+    /// Return the accessible name of a row, independently of its rendered children.
+    ///
+    /// The default leaves the row unnamed so its children retain their existing semantics.
+    fn item_accessibility_label(&self, _: IndexPath, _: &App) -> Option<SharedString> {
         None
     }
 

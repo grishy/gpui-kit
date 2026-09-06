@@ -500,3 +500,10 @@ to restore a particular keyboard cursor. The default returns `None`; an absent o
 invalid preference selects the first item in the first non-empty section. Empty
 results clear the cursor. This does not commit a selection in `Select` or
 `SearchableList`: their committed values remain separate from the keyboard cursor.
+
+## Accessible row names
+
+For composite rows, implement `ListDelegate::item_accessibility_label` to provide a concise
+name on the list-item container. Return `None` to leave the existing child
+semantics unchanged. The hook receives the current `IndexPath` and `App`; it does
+not change the row's visible content or selection behavior.
