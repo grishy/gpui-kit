@@ -291,18 +291,13 @@ where
     fn start_search(&mut self, query: String, window: &mut Window, cx: &mut Context<Self>) {
         self.set_searching(true, window, cx);
         let search = self.delegate.perform_search(&query, window, cx);
-
-        if self.rows_cache.len() > 0 {
-            self._set_selected_index(Some(IndexPath::default()), window, cx);
-        } else {
-            self._set_selected_index(None, window, cx);
-        }
+        self.restore_search_cursor(window, cx);
 
         self._search_task = cx.spawn_in(window, async move |this, window| {
             search.await;
 
-            _ = this.update_in(window, |this, _, _| {
-                this.scroll_handle.scroll_to_item(0, ScrollStrategy::Top);
+            _ = this.update_in(window, |this, window, cx| {
+                this.restore_search_cursor(window, cx);
                 this.last_query = Some(query);
             });
 
@@ -315,6 +310,23 @@ where
                 this.set_searching(false, window, cx);
             });
         });
+    }
+
+    fn restore_search_cursor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // Search results can invalidate row indices. Restore the delegate's preferred item only
+        // when it still exists; otherwise select the first item in the first non-empty section.
+        let sections_count = self.delegate.sections_count(cx).max(1);
+        let preferred = self.delegate.preferred_selected_index(cx).filter(|index| {
+            index.section < sections_count
+                && index.row < self.delegate.items_count(index.section, cx)
+        });
+        let first = (0..sections_count)
+            .find(|section| self.delegate.items_count(*section, cx) > 0)
+            .map(|section| IndexPath::default().section(section));
+
+        self.deferred_scroll_to_index = None;
+        self.scroll_handle.scroll_to_item(0, ScrollStrategy::Top);
+        self._set_selected_index(preferred.or(first), window, cx);
     }
 
     fn set_searching(&mut self, searching: bool, window: &mut Window, cx: &mut Context<Self>) {
@@ -885,5 +897,138 @@ mod measurement_tests {
                 div()
             },
         );
+    }
+}
+
+#[cfg(test)]
+mod search_cursor_tests {
+    use super::*;
+    use crate::list::ListItem;
+    use gpui::TestAppContext;
+
+    struct SearchDelegate {
+        counts: Vec<usize>,
+        preferred: Option<IndexPath>,
+    }
+
+    impl ListDelegate for SearchDelegate {
+        type Item = ListItem;
+
+        fn perform_search(
+            &mut self,
+            query: &str,
+            _: &mut Window,
+            cx: &mut Context<ListState<Self>>,
+        ) -> Task<()> {
+            if query == "sync" {
+                self.counts = vec![0, 2];
+                self.preferred = None;
+                return Task::ready(());
+            }
+            let query = query.to_owned();
+            cx.spawn(async move |list, cx| {
+                list.update(cx, |list, _| {
+                    let delegate = &mut list.delegate;
+                    delegate.counts = if query == "empty" {
+                        vec![0, 0]
+                    } else {
+                        vec![0, 3]
+                    };
+                    delegate.preferred =
+                        Some(IndexPath::new(if query == "preferred" { 2 } else { 99 }).section(1));
+                })
+                .unwrap();
+            })
+        }
+
+        fn preferred_selected_index(&self, _: &App) -> Option<IndexPath> {
+            self.preferred
+        }
+        fn sections_count(&self, _: &App) -> usize {
+            self.counts.len()
+        }
+        fn items_count(&self, section: usize, _: &App) -> usize {
+            self.counts[section]
+        }
+        fn set_selected_index(
+            &mut self,
+            _: Option<IndexPath>,
+            _: &mut Window,
+            _: &mut Context<ListState<Self>>,
+        ) {
+        }
+        fn render_item(
+            &mut self,
+            _: IndexPath,
+            _: &mut Window,
+            _: &mut Context<ListState<Self>>,
+        ) -> Option<ListItem> {
+            None
+        }
+    }
+
+    #[gpui::test]
+    fn search_restores_cursor_after_results_arrive(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let window = cx.add_empty_window();
+        let list = window.update(|window, cx| {
+            cx.new(|cx| {
+                ListState::new(
+                    SearchDelegate {
+                        counts: vec![1],
+                        preferred: None,
+                    },
+                    window,
+                    cx,
+                )
+            })
+        });
+        for (query, expected) in [
+            ("preferred", Some(IndexPath::new(2).section(1))),
+            ("invalid", Some(IndexPath::new(0).section(1))),
+            ("empty", None),
+            ("sync", Some(IndexPath::new(0).section(1))),
+        ] {
+            window
+                .update(|window, cx| list.update(cx, |list, cx| list.set_query(query, window, cx)));
+            window.run_until_parked();
+            window.update(|_, cx| {
+                let list = list.read(cx);
+                assert_eq!(list.selected_index(), expected);
+                assert_eq!(
+                    list.deferred_scroll_to_index.map(|(index, _)| index),
+                    expected
+                );
+            });
+        }
+    }
+
+    #[gpui::test]
+    fn filtering_restores_the_committed_item_by_value(cx: &mut TestAppContext) {
+        use crate::select::{SearchableVec, SelectState};
+
+        cx.update(crate::init);
+        let window = cx.add_empty_window();
+        let (select, list) = window.update(|window, cx| {
+            let select = cx.new(|cx| {
+                SelectState::new(
+                    SearchableVec::new(vec!["Rust", "Go", "C++"]),
+                    Some(IndexPath::new(1)),
+                    window,
+                    cx,
+                )
+            });
+            let list = select.read(cx).state.list.clone();
+            (select, list)
+        });
+        for (query, row) in [("Go", 0), ("Rust", 0), ("", 1)] {
+            window
+                .update(|window, cx| list.update(cx, |list, cx| list.set_query(query, window, cx)));
+            window.run_until_parked();
+            window.update(|_, cx| {
+                assert_eq!(list.read(cx).selected_index(), Some(IndexPath::new(row)));
+                assert_eq!(select.read(cx).selected_value(), Some(&"Go"));
+            });
+        }
     }
 }

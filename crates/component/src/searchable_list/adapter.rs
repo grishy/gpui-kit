@@ -161,6 +161,11 @@ impl<D: SearchableListDelegate + 'static> ListDelegate for SearchableListAdapter
         self.delegate.perform_search(query, window, cx)
     }
 
+    fn preferred_selected_index(&self, _: &App) -> Option<IndexPath> {
+        let selected_value = self.selection_snapshot.first()?.1.value();
+        self.delegate.position(selected_value)
+    }
+
     fn set_selected_index(
         &mut self,
         ix: Option<IndexPath>,
