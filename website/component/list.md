@@ -491,3 +491,12 @@ impl ListDelegate for ContactListDelegate {
     }
 }
 ```
+
+## Selection after search
+
+After search starts and again when its task completes, the list validates
+`ListDelegate::preferred_selected_index`. Return an index in the current results
+to restore a particular keyboard cursor. The default returns `None`; an absent or
+invalid preference selects the first item in the first non-empty section. Empty
+results clear the cursor. This does not commit a selection in `Select` or
+`SearchableList`: their committed values remain separate from the keyboard cursor.
