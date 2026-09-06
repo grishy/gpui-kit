@@ -209,13 +209,7 @@ impl RenderOnce for Button {
         let focus_handle = self.focus_handle(window, cx);
         let disabled = self.disabled;
         let style = self.resolved_style();
-        let is_close = crate::dialog::is_close_button(window, cx);
-        let on_click = self
-            .on_click
-            .or_else(|| is_close.then(|| Rc::new(crate::dialog::activate_close) as ClickHandler));
-        let accessibility_label = self
-            .accessibility_label
-            .or_else(|| is_close.then(|| "Close".into()));
+        let on_click = self.on_click;
 
         self.base
             // Centering is part of Button's control geometry. Without a flex
@@ -235,7 +229,9 @@ impl RenderOnce for Button {
             .when_some(self.role.resolve(|| Role::Button), |this, role| {
                 this.role(role)
             })
-            .when_some(accessibility_label, |this, label| this.aria_label(label))
+            .when_some(self.accessibility_label, |this, label| {
+                this.aria_label(label)
+            })
             .when(!disabled && self.focusable, |this| {
                 this.track_focus(
                     &focus_handle

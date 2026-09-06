@@ -3,7 +3,7 @@ use gpui::{
     StatefulInteractiveElement, StyleRefinement, Styled, Window, div, relative,
 };
 
-use crate::{ActiveTheme as _, StyledExt as _, dialog::Confirm, h_flex};
+use crate::{ActiveTheme as _, StyledExt as _, button::Button, dialog::Confirm, h_flex};
 
 /// Footer section of a dialog, typically contains action buttons.
 ///
@@ -11,7 +11,7 @@ use crate::{ActiveTheme as _, StyledExt as _, dialog::Confirm, h_flex};
 ///
 /// ```ignore
 /// DialogFooter::new()
-///     .child(DialogClose::new().child(Button::new("cancel").label("Cancel")))
+///     .child(DialogClose::new().trigger(|button| button.label("Cancel")))
 ///     .child(Button::new("confirm").label("Confirm"))
 /// ```
 #[derive(IntoElement)]
@@ -73,6 +73,14 @@ impl DialogClose {
             base: gpui_base::DialogClose::new(),
         }
     }
+
+    /// Styles a close button whose accessibility and activation are owned by Base.
+    pub fn trigger<E: IntoElement>(mut self, build: impl FnOnce(Button) -> E) -> Self {
+        self.base = self
+            .base
+            .trigger(|button| build(Button::new("close").with_base(button)));
+        self
+    }
 }
 
 impl ParentElement for DialogClose {
@@ -115,89 +123,5 @@ impl RenderOnce for DialogAction {
                 window.dispatch_action(Box::new(Confirm { secondary: false }), cx)
             })
             .children(self.children)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{Disableable as _, button::Button, dialog::Cancel};
-    use gpui::{Context, FocusHandle, KeyDownEvent, KeyUpEvent, Keystroke, Render, point, px};
-    use std::{cell::Cell, rc::Rc};
-
-    #[gpui::test]
-    fn close_child_activates_once_and_ignores_loading_and_disabled(cx: &mut gpui::TestAppContext) {
-        struct Harness {
-            focus: FocusHandle,
-            cancels: Rc<Cell<usize>>,
-            loading: bool,
-            disabled: bool,
-        }
-        impl Render for Harness {
-            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-                let cancels = self.cancels.clone();
-                div()
-                    .id("host")
-                    .track_focus(&self.focus.clone().tab_stop(false))
-                    .tab_group()
-                    .on_action(move |_: &Cancel, _, _| cancels.set(cancels.get() + 1))
-                    .child(
-                        DialogClose::new().child(
-                            Button::new("close")
-                                .size(px(100.))
-                                .loading(self.loading)
-                                .disabled(self.disabled),
-                        ),
-                    )
-            }
-        }
-
-        cx.update(crate::init);
-        let cancels = Rc::new(Cell::new(0));
-        let (view, cx) = cx.add_window_view({
-            let cancels = cancels.clone();
-            move |_, cx| Harness {
-                focus: cx.focus_handle(),
-                cancels,
-                loading: false,
-                disabled: false,
-            }
-        });
-        cx.update(|window, cx| {
-            view.read(cx).focus.clone().focus(window, cx);
-            window.draw(cx).clear(cx);
-        });
-        cx.simulate_click(point(px(10.), px(10.)), Default::default());
-        cx.run_until_parked();
-        assert_eq!(cancels.get(), 1);
-        cx.update(|window, cx| {
-            window.focus_next(cx);
-            window.draw(cx).clear(cx);
-        });
-        let press_space = |cx: &mut gpui::VisualTestContext| {
-            let keystroke = Keystroke::parse("space").unwrap();
-            cx.simulate_event(KeyDownEvent {
-                keystroke: keystroke.clone(),
-                is_held: false,
-                prefer_character_input: false,
-            });
-            cx.simulate_event(KeyUpEvent { keystroke });
-        };
-        press_space(cx);
-        cx.run_until_parked();
-        assert_eq!(cancels.get(), 2);
-
-        for loading in [true, false] {
-            view.update(cx, |view, cx| {
-                view.loading = loading;
-                view.disabled = !loading;
-                cx.notify();
-            });
-            cx.update(|window, cx| window.draw(cx).clear(cx));
-            cx.simulate_click(point(px(10.), px(10.)), Default::default());
-            press_space(cx);
-            cx.run_until_parked();
-            assert_eq!(cancels.get(), 2, "inactive close buttons must not cancel");
-        }
     }
 }

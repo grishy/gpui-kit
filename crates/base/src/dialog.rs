@@ -4,10 +4,10 @@ use std::{
 };
 
 use gpui::{
-    AnyElement, App, Bounds, ClickEvent, Element, ElementId, FocusHandle, Global, GlobalElementId,
-    InspectorElementId, InteractiveElement as _, IntoElement, KeyBinding, LayoutId, MouseButton,
-    ParentElement, Pixels, RenderOnce, Role, StatefulInteractiveElement as _, StyleRefinement,
-    Styled, Window, WindowId, anchored, deferred, div, point, prelude::FluentBuilder as _, px,
+    AnyElement, App, ClickEvent, FocusHandle, InteractiveElement as _, IntoElement, KeyBinding,
+    MouseButton, ParentElement, Pixels, RenderOnce, Role, StatefulInteractiveElement as _,
+    StyleRefinement, Styled, Window, anchored, deferred, div, point, prelude::FluentBuilder as _,
+    px,
 };
 use smallvec::SmallVec;
 
@@ -326,12 +326,11 @@ impl RenderOnce for DialogDescription {
 }
 
 /// Wrapper that dispatches the dialog cancel action when activated.
-/// Child buttons inherit the close action and a default accessible name of "Close".
-/// Explicit button labels and click handlers are preserved.
 #[derive(IntoElement)]
 pub struct DialogClose {
     style: StyleRefinement,
     children: SmallVec<[AnyElement; 1]>,
+    trigger: Option<AnyElement>,
 }
 
 impl DialogClose {
@@ -339,7 +338,25 @@ impl DialogClose {
         Self {
             style: StyleRefinement::default(),
             children: SmallVec::new(),
+            trigger: None,
         }
+    }
+
+    /// Styles a button with the accessible name "Close" and cancel activation.
+    ///
+    /// The supplied button already supports pointer, keyboard, and accessibility
+    /// activation. The builder only needs to supply presentation.
+    /// The wrapper does not also handle clicks when a trigger is supplied.
+    pub fn trigger<E: IntoElement>(mut self, build: impl FnOnce(crate::Button) -> E) -> Self {
+        let button = crate::Button::new("close")
+            .accessibility_label("Close")
+            .on_click(Self::activate);
+        self.trigger = Some(build(button).into_any_element());
+        self
+    }
+
+    fn activate(_: &ClickEvent, window: &mut Window, cx: &mut App) {
+        window.dispatch_action(Box::new(Cancel), cx);
     }
 }
 impl Default for DialogClose {
@@ -359,119 +376,12 @@ impl Styled for DialogClose {
 }
 impl RenderOnce for DialogClose {
     fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
-        DialogCloseElement(
-            div()
-                .id("dialog-close")
-                .on_click(activate_close)
-                .children(self.children)
-                .refine_style(&self.style),
-        )
-    }
-}
-
-// Children are type-erased and rendered lazily. Scope the existing composition
-// through GPUI's element phases so Base buttons can receive close semantics
-// without changing ParentElement or adding a second composition API.
-#[derive(Default)]
-struct DialogCloseScope(Cell<Option<WindowId>>);
-impl Global for DialogCloseScope {}
-
-pub(crate) fn is_close_button(window: &Window, cx: &App) -> bool {
-    cx.try_global::<DialogCloseScope>()
-        .and_then(|scope| scope.0.get())
-        == Some(window.window_handle().window_id())
-}
-
-pub(crate) fn activate_close(_: &ClickEvent, window: &mut Window, cx: &mut App) {
-    // A button and its wrapper must not both dispatch Cancel, including when
-    // on_cancel vetoes dismissal and leaves the same dialog open.
-    cx.stop_propagation();
-    window.dispatch_action(Box::new(Cancel), cx);
-}
-
-fn with_close_scope<R>(
-    window: &mut Window,
-    cx: &mut App,
-    render: impl FnOnce(&mut Window, &mut App) -> R,
-) -> R {
-    if !cx.has_global::<DialogCloseScope>() {
-        cx.set_global(DialogCloseScope::default());
-    }
-    let previous = cx
-        .global::<DialogCloseScope>()
-        .0
-        .replace(Some(window.window_handle().window_id()));
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| render(window, cx)));
-    cx.global::<DialogCloseScope>().0.set(previous);
-    match result {
-        Ok(result) => result,
-        Err(payload) => std::panic::resume_unwind(payload),
-    }
-}
-
-struct DialogCloseElement<E>(E);
-
-impl<E: Element> IntoElement for DialogCloseElement<E> {
-    type Element = Self;
-
-    fn into_element(self) -> Self {
-        self
-    }
-}
-
-impl<E: Element> Element for DialogCloseElement<E> {
-    type RequestLayoutState = E::RequestLayoutState;
-    type PrepaintState = E::PrepaintState;
-
-    fn id(&self) -> Option<ElementId> {
-        self.0.id()
-    }
-
-    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
-        self.0.source_location()
-    }
-
-    fn request_layout(
-        &mut self,
-        id: Option<&GlobalElementId>,
-        inspector_id: Option<&InspectorElementId>,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> (LayoutId, Self::RequestLayoutState) {
-        with_close_scope(window, cx, |window, cx| {
-            self.0.request_layout(id, inspector_id, window, cx)
-        })
-    }
-
-    fn prepaint(
-        &mut self,
-        id: Option<&GlobalElementId>,
-        inspector_id: Option<&InspectorElementId>,
-        bounds: Bounds<Pixels>,
-        layout: &mut Self::RequestLayoutState,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> Self::PrepaintState {
-        with_close_scope(window, cx, |window, cx| {
-            self.0
-                .prepaint(id, inspector_id, bounds, layout, window, cx)
-        })
-    }
-
-    fn paint(
-        &mut self,
-        id: Option<&GlobalElementId>,
-        inspector_id: Option<&InspectorElementId>,
-        bounds: Bounds<Pixels>,
-        layout: &mut Self::RequestLayoutState,
-        prepaint: &mut Self::PrepaintState,
-        window: &mut Window,
-        cx: &mut App,
-    ) {
-        with_close_scope(window, cx, |window, cx| {
-            self.0
-                .paint(id, inspector_id, bounds, layout, prepaint, window, cx)
-        });
+        div()
+            .id("dialog-close")
+            .when(self.trigger.is_none(), |this| this.on_click(Self::activate))
+            .children(self.trigger)
+            .children(self.children)
+            .refine_style(&self.style)
     }
 }
 
@@ -701,86 +611,41 @@ mod tests {
     use std::{cell::RefCell, rc::Rc};
 
     #[gpui::test]
-    fn close_children_supply_accessibility_without_affecting_siblings(
-        cx: &mut gpui::TestAppContext,
-    ) {
+    fn close_trigger_supplies_accessible_button(cx: &mut gpui::TestAppContext) {
         use gpui::{Element as _, accesskit, canvas};
         use std::sync::{Arc, Mutex};
 
-        type Captured = Arc<Mutex<Vec<accesskit::Node>>>;
-        fn probe(captured: Captured, start_frame: bool) -> impl IntoElement {
-            canvas(
-                move |_, window, cx| {
-                    if start_frame {
-                        captured.lock().unwrap().clear();
-                    }
-                    for button in [
-                        crate::Button::new("close"),
-                        crate::Button::new("named").accessibility_label("Dismiss"),
-                        crate::Button::new("disabled").disabled(true),
-                    ] {
-                        let element = button.render(window, cx).into_element();
-                        let mut node = accesskit::Node::new(element.a11y_role().unwrap());
-                        element.write_a11y_info(&mut node);
-                        captured.lock().unwrap().push(node);
-                    }
-                },
-                |_, _, _, _| {},
-            )
-        }
-        struct Probe(Captured);
+        struct Probe(Arc<Mutex<Option<accesskit::Node>>>);
         impl Render for Probe {
             fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-                div()
-                    .child(
-                        DialogClose::new()
-                            .children([probe(self.0.clone(), true).into_any_element()]),
-                    )
-                    .child(probe(self.0.clone(), false))
+                let captured = self.0.clone();
+                canvas(
+                    move |_, window, cx| {
+                        DialogClose::new().trigger(|button| {
+                            let element = button.render(window, cx).into_element();
+                            let mut node = accesskit::Node::new(element.a11y_role().unwrap());
+                            element.write_a11y_info(&mut node);
+                            *captured.lock().unwrap() = Some(node);
+                            element
+                        });
+                    },
+                    |_, _, _, _| {},
+                )
             }
         }
 
-        let captured = Arc::new(Mutex::new(Vec::new()));
+        let captured = Arc::new(Mutex::new(None));
         let result = captured.clone();
         let (_, cx) = cx.add_window_view(move |_, _| Probe(captured));
         cx.update(|window, cx| window.draw(cx).clear(cx));
-        let nodes = result.lock().unwrap();
-        assert_eq!(nodes.len(), 6);
-        assert_eq!(nodes[0].role(), Role::Button);
-        assert_eq!(nodes[0].label(), Some("Close"));
-        assert!(nodes[0].supports_action(accesskit::Action::Click));
-        assert_eq!(nodes[1].label(), Some("Dismiss"));
-        assert!(!nodes[2].supports_action(accesskit::Action::Click));
-        assert_eq!(nodes[3].label(), None);
-        assert!(!nodes[3].supports_action(accesskit::Action::Click));
-        assert_eq!(nodes[4].label(), Some("Dismiss"));
+        let node = result.lock().unwrap().take().unwrap();
+        assert_eq!(node.role(), Role::Button);
+        assert_eq!(node.label(), Some("Close"));
+        assert!(node.supports_action(accesskit::Action::Click));
     }
 
     #[gpui::test]
-    fn close_scope_restores_after_nesting_and_unwinding(cx: &mut gpui::TestAppContext) {
-        let (_, cx) = cx.add_window_view(|_, _| TriggerHarness {
-            handle: DialogHandle::new(false),
-        });
-        cx.update(|window, cx| {
-            assert!(!is_close_button(window, cx));
-            with_close_scope(window, cx, |window, cx| {
-                assert!(is_close_button(window, cx));
-                with_close_scope(window, cx, |window, cx| {
-                    assert!(is_close_button(window, cx))
-                });
-                assert!(is_close_button(window, cx));
-            });
-            assert!(!is_close_button(window, cx));
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                with_close_scope(window, cx, |_, _| panic!("render failed"));
-            }));
-            assert!(result.is_err());
-            assert!(!is_close_button(window, cx));
-        });
-    }
-
-    #[gpui::test]
-    fn close_child_activates_once_and_respects_cancel_veto(cx: &mut gpui::TestAppContext) {
+    fn close_trigger_activates_once_and_respects_cancel_veto(cx: &mut gpui::TestAppContext) {
         use gpui::{KeyDownEvent, KeyUpEvent, Keystroke};
 
         struct Harness {
@@ -801,11 +666,9 @@ mod tests {
                         attempts.get() > 1
                     })
                     .popup(
-                        DialogClose::new().child(
-                            crate::Button::new("close")
-                                .size(px(100.))
-                                .track_focus(&button_focus),
-                        ),
+                        DialogClose::new().trigger(move |button| {
+                            button.size(px(100.)).track_focus(&button_focus)
+                        }),
                     )
             }
         }
