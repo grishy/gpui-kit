@@ -199,7 +199,7 @@ where
 
                             cx.emit(SelectEvent::Confirm(final_value));
                             cx.notify();
-                            this.set_open(false, cx);
+                            this.set_open(false, window, cx);
                             this.focus(window, cx);
 
                             this.state.selection.clone()
@@ -230,7 +230,7 @@ where
                         list_state.set_selected_index(committed_ix, window, cx);
 
                         _ = weak_cancel.update(cx, |this, cx| {
-                            this.set_open(false, cx);
+                            this.set_open(false, window, cx);
                             this.focus(window, cx);
                         });
                     }
@@ -361,14 +361,14 @@ where
             });
         }
 
-        self.set_open(false, cx);
+        self.set_open(false, window, cx);
         cx.notify();
     }
 
     fn toggle_menu(&mut self, _: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
         cx.stop_propagation();
 
-        self.set_open(!self.state.open, cx);
+        self.set_open(!self.state.open, window, cx);
 
         if self.state.open {
             self.state.list.focus_handle(cx).focus(window, cx);
@@ -384,14 +384,22 @@ where
         }
 
         cx.stop_propagation();
-        self.set_open(false, cx);
+        self.set_open(false, window, cx);
         self.focus(window, cx);
         cx.notify();
     }
 
-    fn set_open(&mut self, open: bool, cx: &mut Context<Self>) {
+    fn set_open(&mut self, open: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if self.state.open == open {
+            return;
+        }
         self.state.open = open;
         self.state.deferred_context = open.then(|| GlobalState::register_deferred_popover(cx));
+
+        // A search belongs to one visit; reopening starts with the full option set.
+        if open && self.searchable {
+            self.state.clear_query(window, cx);
+        }
 
         cx.notify();
     }
@@ -794,8 +802,8 @@ where
             .focus_handle(&focus_handle)
             .content_focus_handle(&content_focus_handle)
             .accessibility_value(accessibility_value)
-            .on_open_change(move |open, _, cx| {
-                open_state.update(cx, |state, cx| state.set_open(open, cx));
+            .on_open_change(move |open, window, cx| {
+                open_state.update(cx, |state, cx| state.set_open(open, window, cx));
             })
             .size_full()
             .child(self.state)
@@ -964,6 +972,23 @@ mod tests {
                 state.read(cx).accessibility_value(),
                 rust_i18n::t!("Select.placeholder").to_string(),
             );
+        });
+    }
+
+    #[gpui::test]
+    fn test_searchable_select_starts_each_open_with_an_empty_query(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let window = cx.add_empty_window();
+        window.update(|window, cx| {
+            let items = SearchableVec::new(vec!["All sources", "Safari", "Books"]);
+            let state = cx.new(|cx| SelectState::new(items, None, window, cx).searchable(true));
+            let list = state.read(cx).state.list.clone();
+
+            list.update(cx, |list, cx| list.set_query("Safari", window, cx));
+            state.update(cx, |state, cx| state.set_open(true, window, cx));
+
+            assert_eq!(list.read(cx).query_input.read(cx).value(), "");
+            assert_eq!(list.read(cx).delegate().delegate.items_count(0), 3);
         });
     }
 }
