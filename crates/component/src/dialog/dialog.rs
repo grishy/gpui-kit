@@ -650,13 +650,12 @@ impl RenderOnce for Dialog {
                                             .absolute()
                                             .top(top)
                                             .right(right)
-                                            .trigger(|button| {
+                                            .child(
                                                 Button::new("close")
-                                                    .with_base(button)
                                                     .small()
                                                     .ghost()
-                                                    .icon(IconName::Close)
-                                            })
+                                                    .icon(IconName::Close),
+                                            )
                                     }))
                                     .with_animation(
                                         "slide-down",

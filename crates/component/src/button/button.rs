@@ -268,12 +268,6 @@ impl Button {
         }
     }
 
-    /// Uses a behavior primitive supplied by a compound Base control.
-    pub(crate) fn with_base(mut self, base: gpui_base::Button) -> Self {
-        self.base = base;
-        self
-    }
-
     pub(super) fn variant(&self) -> ButtonVariant {
         self.variant
     }
@@ -770,6 +764,8 @@ impl RenderOnce for Button {
                 on_click(event, window, cx);
             })
         })
+        // Keep loading buttons inert even when a compound Base control supplies
+        // their default activation handler.
         .when(loading, |this| {
             this.on_click(|_, _, cx| cx.stop_propagation())
         })
@@ -1498,54 +1494,6 @@ mod tests {
 
         assert_eq!(parent_clicks.get(), 0);
         cx.update(|window, cx| assert!(window.focused(cx).is_some()));
-    }
-
-    #[gpui::test]
-    fn base_activation_is_preserved_and_blocked_while_loading(cx: &mut gpui::TestAppContext) {
-        use gpui::{Context, Render, point};
-        use std::{cell::Cell, rc::Rc};
-
-        struct Harness {
-            clicks: Rc<Cell<usize>>,
-            loading: bool,
-        }
-        impl Render for Harness {
-            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-                let clicks = self.clicks.clone();
-                div().tab_group().child(
-                    Button::new("close")
-                        .with_base(
-                            gpui_base::Button::new("close")
-                                .on_click(move |_, _, _| clicks.set(clicks.get() + 1)),
-                        )
-                        .loading(self.loading)
-                        .size(px(100.)),
-                )
-            }
-        }
-
-        cx.update(crate::init);
-        let clicks = Rc::new(Cell::new(0));
-        let (view, cx) = cx.add_window_view({
-            let clicks = clicks.clone();
-            move |_, _| Harness {
-                clicks,
-                loading: false,
-            }
-        });
-        cx.update(|window, cx| window.draw(cx).clear(cx));
-        cx.simulate_click(point(px(10.), px(10.)), Default::default());
-        assert_eq!(clicks.get(), 1);
-
-        view.update(cx, |view, cx| {
-            view.loading = true;
-            cx.notify();
-        });
-        cx.update(|window, cx| window.draw(cx).clear(cx));
-        cx.simulate_click(point(px(10.), px(10.)), Default::default());
-        cx.update(|window, cx| window.focus_next(cx));
-        cx.simulate_keystrokes("enter space");
-        assert_eq!(clicks.get(), 1);
     }
 
     #[gpui::test]
