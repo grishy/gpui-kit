@@ -700,7 +700,8 @@ impl RenderOnce for Button {
                         .min_w_0()
                         .whitespace_nowrap()
                         .text_ellipsis()
-                        .line_height(relative(1.))
+                        // System-font ascenders and descenders exceed a 1em line box on macOS.
+                        .line_height(relative(1.25))
                         .child(label),
                 )
             })
