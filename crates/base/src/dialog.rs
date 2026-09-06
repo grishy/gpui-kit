@@ -342,16 +342,16 @@ impl DialogClose {
         }
     }
 
-    /// Builds the close control with its activation handler attached directly.
+    /// Styles a button with the accessible name "Close" and cancel activation.
     ///
-    /// Pass the supplied handler to the control's `on_click` so keyboard and
-    /// accessibility activation use the same cancel action as pointer input.
+    /// The supplied button already supports pointer, keyboard, and accessibility
+    /// activation. The builder only needs to supply presentation.
     /// The wrapper does not also handle clicks when a trigger is supplied.
-    pub fn trigger<E: IntoElement>(
-        mut self,
-        build: impl FnOnce(fn(&ClickEvent, &mut Window, &mut App)) -> E,
-    ) -> Self {
-        self.trigger = Some(build(Self::activate).into_any_element());
+    pub fn trigger<E: IntoElement>(mut self, build: impl FnOnce(crate::Button) -> E) -> Self {
+        let button = crate::Button::new("close")
+            .accessibility_label("Close")
+            .on_click(Self::activate);
+        self.trigger = Some(build(button).into_any_element());
         self
     }
 
@@ -611,6 +611,40 @@ mod tests {
     use std::{cell::RefCell, rc::Rc};
 
     #[gpui::test]
+    fn close_trigger_supplies_accessible_button(cx: &mut gpui::TestAppContext) {
+        use gpui::{Element as _, accesskit, canvas};
+        use std::sync::{Arc, Mutex};
+
+        struct Probe(Arc<Mutex<Option<accesskit::Node>>>);
+        impl Render for Probe {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                let captured = self.0.clone();
+                canvas(
+                    move |_, window, cx| {
+                        DialogClose::new().trigger(|button| {
+                            let element = button.render(window, cx).into_element();
+                            let mut node = accesskit::Node::new(element.a11y_role().unwrap());
+                            element.write_a11y_info(&mut node);
+                            *captured.lock().unwrap() = Some(node);
+                            element
+                        });
+                    },
+                    |_, _, _, _| {},
+                )
+            }
+        }
+
+        let captured = Arc::new(Mutex::new(None));
+        let result = captured.clone();
+        let (_, cx) = cx.add_window_view(move |_, _| Probe(captured));
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let node = result.lock().unwrap().take().unwrap();
+        assert_eq!(node.role(), Role::Button);
+        assert_eq!(node.label(), Some("Close"));
+        assert!(node.supports_action(accesskit::Action::Click));
+    }
+
+    #[gpui::test]
     fn close_trigger_activates_once_and_respects_cancel_veto(cx: &mut gpui::TestAppContext) {
         use gpui::{KeyDownEvent, KeyUpEvent, Keystroke};
 
@@ -631,13 +665,11 @@ mod tests {
                         attempts.set(attempts.get() + 1);
                         attempts.get() > 1
                     })
-                    .popup(DialogClose::new().trigger(move |on_close| {
-                        crate::Button::new("close")
-                            .size(px(100.))
-                            .track_focus(&button_focus)
-                            .accessibility_label("Close")
-                            .on_click(on_close)
-                    }))
+                    .popup(
+                        DialogClose::new().trigger(move |button| {
+                            button.size(px(100.)).track_focus(&button_focus)
+                        }),
+                    )
             }
         }
 

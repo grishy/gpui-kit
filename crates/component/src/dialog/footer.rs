@@ -1,9 +1,9 @@
 use gpui::{
-    AnyElement, App, ClickEvent, InteractiveElement as _, IntoElement, ParentElement, RenderOnce,
+    AnyElement, App, InteractiveElement as _, IntoElement, ParentElement, RenderOnce,
     StatefulInteractiveElement, StyleRefinement, Styled, Window, div, relative,
 };
 
-use crate::{ActiveTheme as _, StyledExt as _, dialog::Confirm, h_flex};
+use crate::{ActiveTheme as _, StyledExt as _, button::Button, dialog::Confirm, h_flex};
 
 /// Footer section of a dialog, typically contains action buttons.
 ///
@@ -11,9 +11,7 @@ use crate::{ActiveTheme as _, StyledExt as _, dialog::Confirm, h_flex};
 ///
 /// ```ignore
 /// DialogFooter::new()
-///     .child(DialogClose::new().trigger(|on_close| {
-///         Button::new("cancel").label("Cancel").on_click(on_close)
-///     }))
+///     .child(DialogClose::new().trigger(|button| button.label("Cancel")))
 ///     .child(Button::new("confirm").label("Confirm"))
 /// ```
 #[derive(IntoElement)]
@@ -76,13 +74,11 @@ impl DialogClose {
         }
     }
 
-    /// Builds a close control with pointer, keyboard, and accessibility activation.
-    /// Pass the supplied handler to the control's `on_click`.
-    pub fn trigger<E: IntoElement>(
-        mut self,
-        build: impl FnOnce(fn(&ClickEvent, &mut Window, &mut App)) -> E,
-    ) -> Self {
-        self.base = self.base.trigger(build);
+    /// Styles a close button whose accessibility and activation are owned by Base.
+    pub fn trigger<E: IntoElement>(mut self, build: impl FnOnce(Button) -> E) -> Self {
+        self.base = self
+            .base
+            .trigger(|button| build(Button::new("close").with_base(button)));
         self
     }
 }

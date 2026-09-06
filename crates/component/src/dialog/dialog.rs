@@ -650,13 +650,12 @@ impl RenderOnce for Dialog {
                                             .absolute()
                                             .top(top)
                                             .right(right)
-                                            .trigger(|on_close| {
+                                            .trigger(|button| {
                                                 Button::new("close")
+                                                    .with_base(button)
                                                     .small()
                                                     .ghost()
                                                     .icon(IconName::Close)
-                                                    .accessibility_label(t!("Dialog.close"))
-                                                    .on_click(on_close)
                                             })
                                     }))
                                     .with_animation(
