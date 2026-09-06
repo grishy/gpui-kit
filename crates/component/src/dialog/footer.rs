@@ -1,5 +1,5 @@
 use gpui::{
-    AnyElement, App, InteractiveElement as _, IntoElement, ParentElement, RenderOnce,
+    AnyElement, App, ClickEvent, InteractiveElement as _, IntoElement, ParentElement, RenderOnce,
     StatefulInteractiveElement, StyleRefinement, Styled, Window, div, relative,
 };
 
@@ -11,7 +11,9 @@ use crate::{ActiveTheme as _, StyledExt as _, dialog::Confirm, h_flex};
 ///
 /// ```ignore
 /// DialogFooter::new()
-///     .child(DialogClose::new().child(Button::new("cancel").label("Cancel")))
+///     .child(DialogClose::new().trigger(|on_close| {
+///         Button::new("cancel").label("Cancel").on_click(on_close)
+///     }))
 ///     .child(Button::new("confirm").label("Confirm"))
 /// ```
 #[derive(IntoElement)]
@@ -72,6 +74,16 @@ impl DialogClose {
         Self {
             base: gpui_base::DialogClose::new(),
         }
+    }
+
+    /// Builds a close control with pointer, keyboard, and accessibility activation.
+    /// Pass the supplied handler to the control's `on_click`.
+    pub fn trigger<E: IntoElement>(
+        mut self,
+        build: impl FnOnce(fn(&ClickEvent, &mut Window, &mut App)) -> E,
+    ) -> Self {
+        self.base = self.base.trigger(build);
+        self
     }
 }
 

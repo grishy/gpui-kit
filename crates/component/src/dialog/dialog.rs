@@ -646,16 +646,17 @@ impl RenderOnce for Dialog {
                                         let top = (paddings.top - px(10.)).max(px(8.));
                                         let right = (paddings.right - px(10.)).max(px(8.));
 
-                                        Button::new("close")
+                                        gpui_base::DialogClose::new()
                                             .absolute()
                                             .top(top)
                                             .right(right)
-                                            .small()
-                                            .ghost()
-                                            .icon(IconName::Close)
-                                            .accessibility_label(t!("Dialog.close"))
-                                            .on_click(|_, window, cx| {
-                                                window.dispatch_action(Box::new(Cancel), cx)
+                                            .trigger(|on_close| {
+                                                Button::new("close")
+                                                    .small()
+                                                    .ghost()
+                                                    .icon(IconName::Close)
+                                                    .accessibility_label(t!("Dialog.close"))
+                                                    .on_click(on_close)
                                             })
                                     }))
                                     .with_animation(
