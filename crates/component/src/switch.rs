@@ -1,5 +1,6 @@
 use crate::{
-    ActiveTheme, Disableable, Side, Sizable, Size, StyledExt, text::Text, tooltip::ComponentTooltip,
+    ActiveTheme, Disableable, Side, Sizable, Size, StyledExt, ThemeStyled, text::Text,
+    tooltip::ComponentTooltip,
 };
 use gpui::{
     App, Background, ElementId, Hsla, InteractiveElement, IntoElement, ParentElement as _,
@@ -120,6 +121,13 @@ impl RenderOnce for Switch {
             .clone()
             .or_else(|| self.label.as_ref().map(|label| label.get_text(cx)));
 
+        // Share BaseSwitch's keyed focus handle; the styled layer paints the ring.
+        let focus_handle = window
+            .use_keyed_state(self.id.clone(), cx, |_, cx| cx.focus_handle())
+            .read(cx)
+            .clone();
+        let show_focus_ring = !self.disabled && focus_handle.is_focused(window);
+
         let checked_bg = self
             .color
             .map(Background::from)
@@ -183,6 +191,8 @@ impl RenderOnce for Switch {
                 .h_flex()
                 .gap_2()
                 .items_start()
+                .rounded(radius)
+                .when(show_focus_ring, |this| this.focus_ring_style(window, cx))
                 .when(self.label_side.is_left(), |this| this.flex_row_reverse())
                 .child(
                     // Switch Bar
