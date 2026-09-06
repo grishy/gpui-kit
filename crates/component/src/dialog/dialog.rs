@@ -650,14 +650,13 @@ impl RenderOnce for Dialog {
                                             .absolute()
                                             .top(top)
                                             .right(right)
-                                            .child(
+                                            .trigger(|button| {
                                                 Button::new("close")
+                                                    .with_base(button)
                                                     .small()
                                                     .ghost()
                                                     .icon(IconName::Close)
-                                                    .accessibility_label(t!("Dock.Close"))
-                                                    .tooltip(t!("Dock.Close")),
-                                            )
+                                            })
                                     }))
                                     .with_animation(
                                         "slide-down",

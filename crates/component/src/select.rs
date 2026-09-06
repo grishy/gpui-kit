@@ -450,14 +450,12 @@ where
     }
 
     fn accessibility_value(&self) -> SharedString {
-        let placeholder = self
-            .state
-            .placeholder
-            .clone()
-            .unwrap_or_else(|| t!("Select.placeholder").into());
-
         let Some((_, item)) = self.state.selection.first() else {
-            return placeholder;
+            return self
+                .state
+                .placeholder
+                .clone()
+                .unwrap_or_else(|| t!("Select.placeholder").into());
         };
 
         if let Some(prefix) = self.title_prefix.as_ref() {
@@ -936,6 +934,48 @@ mod tests {
     }
 
     #[gpui::test]
+    fn test_select_accessibility_value_tracks_placeholder_and_selection(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let window = cx.add_empty_window();
+        window.update(|window, cx| {
+            let items = SearchableVec::new(vec!["Rust", "Go"]);
+            let state = cx.new(|cx| SelectState::new(items, None, window, cx).searchable(true));
+
+            _ = Select::new(&state)
+                .placeholder("Choose a language")
+                .accessibility_label("Programming language")
+                .render(window, cx);
+            assert_eq!(state.read(cx).accessibility_value(), "Choose a language");
+
+            state.update(cx, |state, cx| {
+                state.set_selected_value(&"Rust", window, cx);
+            });
+            assert_eq!(state.read(cx).accessibility_value(), "Rust");
+
+            let list = state.read(cx).state.list.clone();
+            list.update(cx, |list, cx| list.set_query("Go", window, cx));
+            assert_eq!(list.read(cx).delegate().delegate.items_count(0), 1);
+            // Filtering changes the available rows, not the committed value.
+            assert_eq!(state.read(cx).accessibility_value(), "Rust");
+
+            _ = Select::new(&state)
+                .placeholder("Choose a language")
+                .title_prefix("Language: ")
+                .render(window, cx);
+            assert_eq!(state.read(cx).accessibility_value(), "Language: Rust");
+
+            state.update(cx, |state, cx| state.set_selected_index(None, window, cx));
+            assert_eq!(state.read(cx).accessibility_value(), "Choose a language");
+
+            _ = Select::new(&state).render(window, cx);
+            assert_eq!(
+                state.read(cx).accessibility_value(),
+                rust_i18n::t!("Select.placeholder").to_string(),
+            );
+        });
+    }
+
+    #[gpui::test]
     fn test_searchable_select_starts_each_open_with_an_empty_query(cx: &mut TestAppContext) {
         cx.update(crate::init);
         let window = cx.add_empty_window();
@@ -949,33 +989,6 @@ mod tests {
 
             assert_eq!(list.read(cx).query_input.read(cx).value(), "");
             assert_eq!(list.read(cx).delegate().delegate.items_count(0), 3);
-        });
-    }
-
-    #[gpui::test]
-    fn test_select_accessibility_value_tracks_placeholder_and_selection(cx: &mut TestAppContext) {
-        cx.update(crate::init);
-        let window = cx.add_empty_window();
-        window.update(|window, cx| {
-            let items = SearchableVec::new(vec!["Safari", "Books"]);
-            let state = cx.new(|cx| SelectState::new(items, None, window, cx));
-
-            _ = Select::new(&state)
-                .placeholder("All sources")
-                .accessibility_label("History source")
-                .render(window, cx);
-            assert_eq!(state.read(cx).accessibility_value(), "All sources");
-
-            state.update(cx, |state, cx| {
-                state.set_selected_value(&"Safari", window, cx);
-            });
-
-            assert_eq!(state.read(cx).accessibility_value(), "Safari");
-            state.read(cx).state.list.clone().update(cx, |list, cx| {
-                list.set_query("Books", window, cx);
-            });
-            // Searching moves the cursor, not the committed accessible value.
-            assert_eq!(state.read(cx).accessibility_value(), "Safari");
         });
     }
 }
