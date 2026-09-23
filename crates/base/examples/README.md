@@ -4,6 +4,9 @@
 component. It selects one component from the shared `showcase` implementation, so native and
 WebAssembly previews exercise the same Rust code without producing one binary per component.
 
+These low-level fixtures initialize Base and use GPUI's window API directly.
+These examples depend on Base and GPUI without depending on the higher-level Kit crate.
+
 Run an individual component natively:
 
 ```bash
@@ -18,7 +21,7 @@ Run without a component slug to show the overview:
 cargo run -p gpui-base-examples
 ```
 
-Motion has a separate example because it demonstrates continuous behavior rather than a component catalog entry. It contains focused pages for transitions, springs, keyframes, presence, and stagger:
+Motion has a separate example because it demonstrates continuous behavior rather than a component catalog entry. It contains focused pages for transitions, springs, keyframes, presence, stagger, and sequences:
 
 ```bash
 cargo run -p gpui-base-examples --bin motion

@@ -1,7 +1,7 @@
 ---
 title: 移动端
 description: 使用实验性的 gpui-pre-mobile 平台构建 iOS 应用，或将 GPUI Kit 嵌入 Swift UIKit 容器。
-order: -2.4
+order: -10
 ---
 
 # 移动端
@@ -123,11 +123,12 @@ if gpui_kit::is_mobile() {
 - 一段对话只由一个容器负责纵向滚动。位于该容器内的 `TextView` 使用 `.w_full().min_w_0().scrollable(false)`，使文字与图片适应可用宽度。
 - 输入为空时保持紧凑。如果不需要多行输入，就使用单行输入框，并确保键盘不会遮挡发送操作。
 - iOS 和 Android 上点击 HoverCard 的触发元素切换开关，点击外部关闭；移动手指不会打开卡片。
+- 在 `Input`、`Textarea` 或可选择的 `TextView` 中长按或双击会选中手指下的单词，然后在选区两端显示拖动 handle，并弹出包含剪切、复制、粘贴、全选（按当前可用情况显示）的编辑菜单。无需额外配置；窗口文本选区的菜单由 `Root` 绘制。
 - 让操作可以通过触摸发现。复制按钮与回复正文对齐，复制成功后短暂显示对勾，不依赖悬停提示解释操作。
 - 使用短段落和有意义的标题。代码、表格和图片应服务于对话，不必在每条回复中罗列所有 Markdown 格式。
 - 一致使用 Kit 的主题颜色、字号和间距。在真实设备宽度下检查长回复、宽代码、图片加载和中文等不同文字。
 
-GPUI Base 在 iOS 和 Android 上禁用其 tooltip overlay。这只覆盖通过该 overlay 显示的 Kit 提示，不影响直接调用 GPUI `.tooltip()` 的代码。上述固定依赖基线尚不包含这一修改。移动视图中不要添加 GPUI 原生悬停提示。
+GPUI Base 在 iOS 和 Android 上禁用其 tooltip overlay。这只覆盖通过该 overlay 显示的 Kit 提示，不影响直接调用 GPUI `.tooltip()` 的代码。上述固定依赖基线尚不包含这一修改。移动视图中不要添加 GPUI 悬停提示。
 
 ## 验证与当前限制
 
