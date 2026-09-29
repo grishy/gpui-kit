@@ -18,6 +18,7 @@ use crate::{
     searchable_list::{
         SearchableListChange, SearchableListDelegate, SearchableListItem, SearchableListState,
     },
+    sizing::DROPDOWN_LIST_PADDING,
     v_flex,
 };
 use gpui_base::{GlobalState, Select as BaseSelect};
@@ -612,7 +613,7 @@ where
                             v_flex()
                                 .occlude()
                                 .map(|this| match self.state.menu_width {
-                                    Length::Auto => this.w(bounds.size.width + px(2.)),
+                                    Length::Auto => this.w(bounds.size.width),
                                     Length::Definite(w) => this.w(w),
                                 })
                                 .popover_style(cx)
@@ -626,7 +627,7 @@ where
                                         )
                                         .with_size(self.state.size)
                                         .max_h(self.state.menu_max_h)
-                                        .paddings(Edges::all(px(4.))),
+                                        .paddings(Edges::all(DROPDOWN_LIST_PADDING)),
                                 )
                                 .on_mouse_down_out(cx.listener(|this, _, window, cx| {
                                     this.escape(&Cancel, window, cx);
