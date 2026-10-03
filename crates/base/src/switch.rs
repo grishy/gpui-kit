@@ -362,6 +362,7 @@ impl RenderOnce for Switch {
         self.base
             .test_support()
             .role(Role::Switch)
+            .aria_disabled(disabled)
             .aria_toggled(if checked {
                 Toggled::True
             } else {
@@ -732,8 +733,7 @@ mod tests {
         assert_eq!(disabled.role(), Role::Switch);
         assert_eq!(disabled.toggled(), Some(Toggled::False));
         assert!(!disabled.supports_action(accesskit::Action::Click));
-        // GPUI currently has no aria-disabled setter. Keep the limitation
-        // explicit instead of claiming an AccessKit disabled state.
-        assert!(!disabled.is_disabled());
+        assert!(!enabled.is_disabled());
+        assert!(disabled.is_disabled());
     }
 }

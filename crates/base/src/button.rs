@@ -226,6 +226,7 @@ impl RenderOnce for Button {
             // box exactly the font size; anything the caller sets refines over
             // it, so a product that wants looser text still can.
             .line_height(relative(1.))
+            .aria_disabled(disabled)
             .when_some(self.role.resolve(|| Role::Button), |this, role| {
                 this.role(role)
             })
@@ -548,9 +549,7 @@ mod tests {
         assert_eq!(disabled.role(), Role::Button);
         assert!(!disabled.supports_action(accesskit::Action::Click));
 
-        // GPUI's current StatefulInteractiveElement interface has no
-        // aria-disabled setter even though AccessKit can represent it. This
-        // assertion records that upstream gap instead of claiming support.
-        assert!(!disabled.is_disabled());
+        assert!(!enabled.is_disabled());
+        assert!(disabled.is_disabled());
     }
 }

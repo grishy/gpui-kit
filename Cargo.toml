@@ -36,11 +36,13 @@ members = [
     "examples/table_in_scrollable",
     "examples/markdown_table",
     "examples/ai_recipes",
+    "examples/speech",
     "crates/shell",
     "crates/shell/rquickjs-compat",
     "crates/component-shell",
 ]
 resolver = "2"
+exclude = ["vendor/gpui-pre"]
 
 [workspace.package]
 publish = false
@@ -85,7 +87,7 @@ anyhow = "1"
 instant = { version = "0.1", features = ["wasm-bindgen"] }
 log = "0.4"
 lsp-types = { version = "0.97.0", features = ["proposed"] }
-notify = "7.0.0"
+notify = "8.2.0"
 raw-window-handle = "0.6.2"
 ropey = { version = "=2.0.0-beta.1", features = [
     "metric_chars",
@@ -166,6 +168,8 @@ quickjs-jit-core = { opt-level = 3 }
 cap-std = { opt-level = 3 }
 
 [patch.crates-io]
+# Fork-only GPUI fixes; consumers need this override too. See docs/FORK.md.
+gpui-pre = { path = "vendor/gpui-pre" }
 # LLRT's public modules still name their compatible binding dependency
 # `rquickjs`. Route those dependencies through a source-compatible facade so
 # the shell and LLRT share the exact same quickjs-jit types and VM.

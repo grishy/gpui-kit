@@ -73,6 +73,12 @@ impl<D: SearchableListDelegate + 'static> ListDelegate for SearchableListAdapter
         self.delegate.items_count(section)
     }
 
+    fn item_accessibility_label(&self, ix: IndexPath, _: &App) -> Option<gpui::SharedString> {
+        // List owns the focusable row. Its name must remain text even when
+        // the item renders composite content such as an icon and a label.
+        self.delegate.item(ix).map(|item| item.title())
+    }
+
     fn render_section_header(
         &mut self,
         section: usize,
@@ -182,5 +188,55 @@ impl<D: SearchableListDelegate + 'static> ListDelegate for SearchableListAdapter
         cx: &mut Context<ListState<Self>>,
     ) -> impl IntoElement {
         (self.on_render_empty)(window, cx)
+    }
+}
+
+#[cfg(test)]
+mod row_name_tests {
+    use super::*;
+    use crate::searchable_list::{SearchableListItem, SearchableVec};
+    use gpui::{SharedString, TestAppContext};
+
+    #[derive(Clone)]
+    struct CompositeItem(SharedString);
+
+    impl SearchableListItem for CompositeItem {
+        type Value = SharedString;
+
+        fn title(&self) -> SharedString {
+            self.0.clone()
+        }
+        fn value(&self) -> &Self::Value {
+            &self.0
+        }
+        fn render(&self, _: &mut Window, _: &mut App) -> impl IntoElement {
+            div().child(div().child(self.0.clone()))
+        }
+    }
+
+    #[gpui::test]
+    fn searchable_rows_use_item_titles_for_accessible_names(cx: &mut TestAppContext) {
+        let adapter = SearchableListAdapter::new(
+            SearchableVec::new(vec![
+                CompositeItem("English".into()),
+                CompositeItem("Japanese".into()),
+            ]),
+            |_, _, _, _| {},
+            |_, _, _| {},
+            |_, _| div().into_any_element(),
+        );
+        cx.update(|cx| {
+            for (row, name) in ["English", "Japanese"].into_iter().enumerate() {
+                assert_eq!(
+                    adapter.item_accessibility_label(IndexPath::default().row(row), cx),
+                    Some(name.into()),
+                    "The focusable row must expose the title independently of its rendered content",
+                );
+            }
+            assert_eq!(
+                adapter.item_accessibility_label(IndexPath::default().row(2), cx),
+                None
+            );
+        });
     }
 }

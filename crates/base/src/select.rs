@@ -195,6 +195,7 @@ impl RenderOnce for Select {
         self.base
             .role(Role::ComboBox)
             .aria_expanded(open)
+            .aria_disabled(disabled)
             .when_some(self.accessibility_label, |this, label| {
                 this.aria_label(label)
             })
@@ -209,21 +210,41 @@ impl RenderOnce for Select {
             .when(!disabled, |this| {
                 let on_open_change = on_open_change.clone();
                 let content_focus_handle = content_focus_handle.clone();
-                let close = close.clone();
-
-                // Platform adapters may flatten the trigger child.
-                // Expose activation on the semantic root itself.
-                this.on_a11y_action(AccessibleAction::Click, move |_, window, cx| {
+                let expand: ActionHandler = Rc::new(move |window, cx| {
                     if open {
-                        close(window, cx);
                         return;
                     }
-
                     if let Some(handler) = on_open_change.as_ref() {
                         handler(true, window, cx);
                     }
                     if let Some(handle) = content_focus_handle.as_ref() {
                         handle.focus(window, cx);
+                    }
+                });
+
+                // Platform adapters may flatten the trigger child. Register on
+                // the semantic root: Windows ExpandCollapsePattern dispatches
+                // Expand/Collapse, not Click. Repeated requests are idempotent.
+                this.on_a11y_action(AccessibleAction::Click, {
+                    let expand = expand.clone();
+                    let close = close.clone();
+                    move |_, window, cx| {
+                        if open {
+                            close(window, cx);
+                        } else {
+                            expand(window, cx);
+                        }
+                    }
+                })
+                .on_a11y_action(AccessibleAction::Expand, move |_, window, cx| {
+                    expand(window, cx);
+                })
+                .on_a11y_action(AccessibleAction::Collapse, {
+                    let close = close.clone();
+                    move |_, window, cx| {
+                        if open {
+                            close(window, cx);
+                        }
                     }
                 })
             })

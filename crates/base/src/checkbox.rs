@@ -375,6 +375,7 @@ impl RenderOnce for Checkbox {
                 this.role(role)
             })
             .aria_toggled(self.state.toggled())
+            .aria_disabled(disabled)
             .when_some(self.accessibility_label, |this, label| {
                 this.aria_label(label)
             })
@@ -701,5 +702,7 @@ mod tests {
         assert_eq!(mixed.toggled(), Some(Toggled::Mixed));
         assert!(unchecked.supports_action(accesskit::Action::Click));
         assert!(!disabled.supports_action(accesskit::Action::Click));
+        assert!(!unchecked.is_disabled());
+        assert!(disabled.is_disabled());
     }
 }

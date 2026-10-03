@@ -279,7 +279,7 @@ The `Icon` element does not include SVG files by default. You need to:
 
 ## Dependencies
 
-- GPUI: Git version from Zed repository
+- GPUI: matching `gpui-pre-*` snapshot; fork core fixes and consumer override in `docs/FORK.md`.
 - Tree-sitter: For syntax highlighting
 - Ropey: Rope data structure for text, and `RopeExt` trait with more features.
 - Markdown rendering: `markdown` crate
@@ -320,7 +320,9 @@ Uses `rust-i18n` crate.
 - Linux (x86_64)
 - Windows (x86_64)
 
-CI runs full test suite on each platform.
+This fork has no GitHub Actions workflows by owner request. Run verification
+locally; `docs/FORK.md` owns fork dependency provenance, tests and update rules.
+Do not restore upstream workflow files during a merge.
 
 ## Skills Reference
 

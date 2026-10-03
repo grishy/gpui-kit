@@ -201,6 +201,7 @@ impl RenderOnce for Radio {
         self.base
             .test_support()
             .role(Role::RadioButton)
+            .aria_disabled(disabled)
             .aria_toggled(if checked {
                 Toggled::True
             } else {
