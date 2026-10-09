@@ -8,6 +8,7 @@ List search-cursor restoration and focusable-row accessibility-label hook.
 
 | Owner | Invariant | Regression |
 | --- | --- | --- |
+| GPUI Windows clipboard | Writes associate the clipboard with the platform-owned message-only HWND; reads do not claim ownership, and existing text/metadata/image formats remain unchanged | Windows `platform::tests::test_clipboard` on an isolated window station |
 | GPUI Div/Window | Layout and paint use the same hover policy; keyboard input and platform pointer refresh cannot leave inherited foreground stale | Kit `gpui-hover-regression` integration target |
 | GPUI Div | `aria_disabled(bool)` projects AccessKit disabled state; it does not gate input | GPUI `test_accessibility_disabled_state_can_be_set_and_cleared` |
 | Base controls | Button, Checkbox, Radio, Select and Switch project their existing disabled state and retain input gating | Kit `gpui-disabled-accessibility` and Base control tests |
@@ -30,13 +31,21 @@ Its Apache license and original manifest are retained.
 - SHA-256: `d7f0bc3ebba070f8981b3f8e905a12f47d27794a30d029e59cdb9edf7a4b3360`
 - Original Zed revision: `279fe070bb389b79652e52065b2f001edcc0b11b`
 
-Only GPUI core is patched; every platform/support crate remains on the matching
-published `=0.3.8` snapshot. This avoids a parallel Zed Git graph and does not
-require publishing somebody else's crate name to crates.io. The vendored source
+`vendor/gpui-pre-windows` contains the published `gpui-pre-windows 0.3.8`
+archive except `Cargo.toml` (`publish = false`), `src/clipboard.rs`, and
+`src/platform.rs`. Its Apache license and original manifest are retained.
+
+- Archive: <https://static.crates.io/crates/gpui-pre-windows/gpui-pre-windows-0.3.8.crate>
+- SHA-256: `371f9bb13f97e3bea2f8b8e5e81232bb74d735153c244ae67f7400e743925b1c`
+- Original Zed revision: `279fe070bb389b79652e52065b2f001edcc0b11b`
+
+GPUI core and the Windows clipboard owner are patched; every other
+platform/support crate remains on the matching published `=0.3.8` snapshot.
+This avoids a parallel Zed Git graph and does not require publishing somebody else's crate name to crates.io. The vendored source
 is deliberate fork maintenance, not a registry/cache edit or generated build step.
 
 Cargo only applies `[patch]` from the consuming workspace root. Consumers must
-pin Kit **and** the core override to the same fork commit:
+pin Kit **and both** overrides to the same fork commit:
 
 ```toml
 [workspace.dependencies]
@@ -44,16 +53,37 @@ gpui-kit = { git = "https://github.com/grishy/gpui-kit.git", rev = "<commit>", v
 
 [patch.crates-io]
 gpui-pre = { git = "https://github.com/grishy/gpui-kit.git", rev = "<same-commit>" }
+gpui-pre-windows = { git = "https://github.com/grishy/gpui-kit.git", rev = "<same-commit>" }
 ```
 
 Do not depend directly on the vendored crate alongside registry GPUI: that creates
 distinct types. Regenerate the consumer lockfile, inspect `cargo tree -i gpui-pre`,
-and run its native interaction tests. Omitting the override fails compilation at
-`aria_disabled`, rather than silently losing disabled semantics.
+and run its native interaction tests. Omitting the core override fails compilation
+at `aria_disabled`; the Windows override is verified by native ownership tests.
 
-Remove the vendor directory and both root overrides once the matching published
-snapshot contains the two core fixes and passes these regressions. Reconcile
+Remove each vendor directory and its root override once the matching published
+snapshot contains its fixes and passes the corresponding regressions. Reconcile
 accepted Kit fixes on each upstream merge instead of applying them twice.
+
+## Windows clipboard ownership
+
+Windows requires the HWND passed to `OpenClipboard` to become the owner when
+`EmptyClipboard` runs. Opening with NULL loses that ownership and violates the
+`SetClipboardData` contract. The Windows platform already owns a message-only
+window for its whole lifetime; the writer now passes that HWND directly.
+Read-only access still uses NULL. No foreground-window selection, application
+workaround, new window, serialization change or format removal is introduced.
+
+[Microsoft's OpenClipboard contract](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-openclipboard)
+defines this boundary. Both snapshot 0.3.7 and 0.3.8 contain the defect; Zed main
+`f16f9652ec57bf806e65b2a0d51bb92a63644914` still opens with NULL when inspected.
+
+The native ownership regression requires an initially empty clipboard on an
+isolated window station. It checks the live owner HWND after each write plus
+Unicode, JSON metadata, embedded-NUL normalization and mixed text/SVG roundtrips.
+Cleanup clears only test-owned content whose sequence is unchanged, checking
+again while the clipboard is locked. Never run the old unguarded clipboard test
+against an interactive user's clipboard.
 
 ## Windows build-tool compatibility
 
@@ -91,12 +121,13 @@ Unused Component `core-text` and gallery GTK dependencies are removed.
 | Shell `usvg 0.46` | Security preflight and the GPUI renderer must use the same parser; update both when the GPUI snapshot renderer advances |
 | `rsa 0.10.0-rc.18` / `pkcs1 0.8.0-rc.4` in Cargo.lock | Current LLRT uses pre-generic PKCS#1 keys; remove after LLRT adapts to the new generic key API |
 | WebView Linux GTK 0.18 | The Wry/WebKit native stack owns GTK type identity; update the stack together on a qualified Linux host |
+| Imported Windows native graph | All 24 direct declarations (23 unique crates) remain the published 0.3.8 graph; AccessKitWindows 0.34 matches AccessKit 0.24, Windows/core 0.62 and numerics 0.3 match native signatures; registry 0.6 is a qualification hold, not independently proven incompatible; update the coherent graph after native owner tests pass |
 | GPUI snapshot native/layout dependencies | AccessKit, etagere and CoreVideo types cross exact 0.3.8 platform seams; remaining imported itertools/rand, usvg/resvg, Taffy, wasm getrandom and bindgen dependencies are snapshot-qualification holds, not independently proven ABI incompatibilities; update with the snapshot and executable owner regressions |
 
 The optional Fast dependency resolves to its current compatible 0.1.6 release,
 but its accessibility parity is not qualified by this fork. GPUI's private
 mutex/executor updates do not cross platform type boundaries. All other
-vendored files remain archive-identical; this is not a claim that every
+vendored files remain archive-identical to their respective published archives; this is not a claim that every
 transitive dependency is at its latest incompatible major.
 
 ## Fork automation and verification
@@ -130,8 +161,18 @@ regressions pass. Strict all-target Clippy for Kit/Base/Component passes.
 The full workspace formatting check,
 modified core rustfmt check, GPUI pin check and merge whitespace check pass.
 The imported snapshot matches the published archive byte-for-byte outside the
+three declared core files; the Windows snapshot likewise differs only in its
 three declared files. The inherited formatting issue is fixed upstream, so its stale session note is removed.
 
 Native downstream UI, other platforms, the optional Fast backend and release
 qualification require their own evidence; these headless passes do not establish
 them.
+
+### 2026-10-10 Windows clipboard owner verification
+
+On native Windows ARM64 with Rust 1.99, the focused clipboard test passes on an
+identity-verified private window station and desktop. The otherwise-identical
+old writer (NULL owner) fails the live owner assertion on a fresh private station.
+Both fixtures begin empty, restore the parent station and close their owned
+handles. Source hashes match the committed candidate. This verifies the owning
+clipboard mechanism and existing formats, not the downstream product Copy flow.
