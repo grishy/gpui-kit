@@ -1136,6 +1136,24 @@ impl SyntaxHighlighter {
         highlights
     }
 
+    /// Parses `text` without reusing a tree from unrelated text and returns
+    /// every capture in precedence order: later captures override earlier ones.
+    ///
+    /// Injected languages are skipped: building their layers compiles a query
+    /// on every parse, which dominates the cost of many short fragments.
+    pub(crate) fn capture_names(&mut self, text: &Rope) -> Vec<(Range<usize>, SharedString)> {
+        self.tree = None;
+        self.text = Rope::new();
+        self.injection_layers.clear();
+        let injections_query = self.injections_query.take();
+        self.update(None, text, None);
+        self.injections_query = injections_query;
+        self.match_styles(0..text.len())
+            .into_iter()
+            .map(|item| (item.range, item.name))
+            .collect()
+    }
+
     /// Returns the syntax highlight styles for a range of text.
     ///
     /// The argument `range` is the range of bytes in the text to highlight.
@@ -1545,6 +1563,31 @@ console.log(answer);
         assert!(
             has_highlight_covering(&highlights, html, "answer", "variable"),
             "JavaScript identifiers inside script elements should be highlighted"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "tree-sitter-languages")]
+    fn test_kotlin_highlights_string_templates() {
+        let kotlin = "fun greet(name: String) = \"hi $name, ${name.length}\"\n";
+
+        let rope = Rope::from_str(kotlin);
+        let mut highlighter = SyntaxHighlighter::new("kotlin");
+        highlighter.update(None, &rope, None);
+
+        let highlights = highlighter.match_styles(0..kotlin.len());
+
+        assert!(
+            has_highlight_covering(&highlights, kotlin, "fun", "keyword"),
+            "Kotlin keywords should be highlighted"
+        );
+        assert!(
+            has_highlight_covering(&highlights, kotlin, "$", "punctuation.special"),
+            "A string template's `$` should be highlighted"
+        );
+        assert!(
+            has_highlight_covering(&highlights, kotlin, "${", "punctuation.special"),
+            "A string template's `${{` should be highlighted"
         );
     }
 

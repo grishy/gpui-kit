@@ -13,7 +13,7 @@ use gpui_kit::component::{
     tree::{TreeItem, TreeState, tree},
     v_flex,
 };
-use rand::seq::SliceRandom as _;
+use rand::seq::IndexedRandom as _;
 
 #[cfg(not(target_family = "wasm"))]
 use autocorrect::ignorer::Ignorer;
@@ -211,7 +211,7 @@ impl Render for TreeStory {
                         .outline()
                         .label("Select Item")
                         .on_click(cx.listener(|this, _, _, cx| {
-                            if let Some(random_item) = this.items.choose(&mut rand::thread_rng()) {
+                            if let Some(random_item) = this.items.choose(&mut rand::rng()) {
                                 this.tree_state.update(cx, |state, cx| {
                                     state.set_selected_item(Some(random_item), cx);
                                 });

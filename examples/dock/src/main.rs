@@ -468,7 +468,7 @@ impl StoryWorkspace {
         cx: &mut Context<Self>,
     ) {
         // Random pick up a panel to add
-        let panel = match rand::random::<usize>() % 18 {
+        let panel = match rand::random_range(0..18) {
             0 => panel_handle(StoryContainer::panel::<ButtonStory>(window, cx)),
             1 => panel_handle(StoryContainer::panel::<InputStory>(window, cx)),
             2 => panel_handle(StoryContainer::panel::<SelectStory>(window, cx)),

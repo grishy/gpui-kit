@@ -9,7 +9,7 @@ repository = "https://github.com/longbridge/gpui-kit/tree/main/crates/fps"
 readme = "README.md"
 edition.workspace = true
 publish = true
-version = "0.7.0"
+version = "0.7.1"
 
 [lib]
 doctest = false
@@ -18,10 +18,11 @@ doctest = false
 # `gpui/profiler` belongs here, not on the workspace dependency: this is the
 # only crate that uses it, and cargo unifies features across the graph.
 gpui = { workspace = true, features = ["profiler"] }
+gpui-fast = { workspace = true, features = ["profiler"] , optional = true }
 web-time = "1"
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-sysinfo = "0.37"
+sysinfo = "0.39.6"
 
 # This process' GPU usage is read straight from the platform, since `sysinfo`
 # does not report it, and so is its private memory, which `sysinfo` reports only
@@ -29,7 +30,7 @@ sysinfo = "0.37"
 # counter the platform's own activity monitor attributes per process with, so no
 # vendor SDK or elevated privilege is involved.
 [target.'cfg(target_os = "macos")'.dependencies]
-core-graphics = "0.24"
+core-graphics = "0.25"
 libc = "0.2"
 objc2-core-foundation = { version = "0.3", default-features = false, features = [
     "std",
@@ -57,6 +58,10 @@ windows = { workspace = true, features = [
 
 [dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }
+gpui-fast = { workspace = true, features = ["test-support"] }
 
 [lints]
 workspace = true
+
+[features]
+gpui-fast = ["dep:gpui-fast"]

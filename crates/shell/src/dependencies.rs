@@ -547,7 +547,11 @@ fn digest(fields: &[(&str, &str)]) -> String {
         digest.update(value.len().to_le_bytes());
         digest.update(value.as_bytes());
     }
-    format!("{:x}", digest.finalize())
+    digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn temporary_path(parent: &Path, label: &str) -> PathBuf {
@@ -612,6 +616,14 @@ mod tests {
     };
 
     static NEXT: AtomicU64 = AtomicU64::new(1);
+
+    #[test]
+    fn cache_digest_keeps_lowercase_sha256_encoding() {
+        assert_eq!(
+            digest(&[]),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+    }
 
     #[test]
     fn a_user_dependency_cache_lives_in_the_shell_cache() {

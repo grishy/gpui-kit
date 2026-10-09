@@ -42,14 +42,14 @@ impl AudioInput for Microphone {
         let supported = device.default_input_config().map_err(SpeechError::input)?;
         let sample_format = supported.sample_format();
         let config: StreamConfig = supported.into();
-        let source_rate = config.sample_rate.0;
+        let source_rate = config.sample_rate;
 
         let (tx, rx) = unbounded();
         let stream = match sample_format {
-            SampleFormat::F32 => build_stream::<f32>(&device, &config, tx),
-            SampleFormat::I16 => build_stream::<i16>(&device, &config, tx),
-            SampleFormat::U16 => build_stream::<u16>(&device, &config, tx),
-            SampleFormat::I32 => build_stream::<i32>(&device, &config, tx),
+            SampleFormat::F32 => build_stream::<f32>(&device, config, tx),
+            SampleFormat::I16 => build_stream::<i16>(&device, config, tx),
+            SampleFormat::U16 => build_stream::<u16>(&device, config, tx),
+            SampleFormat::I32 => build_stream::<i32>(&device, config, tx),
             other => {
                 return Err(SpeechError::input(anyhow!(
                     "unsupported sample format {other}"
@@ -103,7 +103,7 @@ enum Capture {
 /// through `tx`. Runs on the audio thread, so it only converts and sends.
 fn build_stream<T>(
     device: &cpal::Device,
-    config: &StreamConfig,
+    config: StreamConfig,
     tx: Sender<Capture>,
 ) -> Result<cpal::Stream, SpeechError>
 where
@@ -133,9 +133,9 @@ where
             },
             None,
         )
-        .map_err(|error| match error {
-            cpal::BuildStreamError::DeviceNotAvailable => SpeechError::NoInputDevice,
-            error => SpeechError::input(error),
+        .map_err(|error| match error.kind() {
+            cpal::ErrorKind::DeviceNotAvailable => SpeechError::NoInputDevice,
+            _ => SpeechError::input(error),
         })
 }
 

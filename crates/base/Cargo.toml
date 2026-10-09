@@ -9,7 +9,7 @@ exclude = ["examples/"]
 repository = "https://github.com/longbridge/gpui-kit"
 homepage = "https://gpui-kit.com"
 documentation = "https://docs.rs/gpui-base"
-version = "0.7.0"
+version = "0.7.1"
 publish = true
 edition.workspace = true
 
@@ -25,9 +25,10 @@ name = "text_view_scroll"
 harness = false
 
 [features]
+gpui-fast = ["dep:gpui-fast"]
 decimal = ["dep:rust_decimal"]
-test-support = ["gpui/test-support"]
-inspector = ["gpui_macros/inspector", "gpui/inspector"]
+test-support = ["gpui/test-support", "gpui-fast?/test-support"]
+inspector = ["gpui_macros/inspector", "gpui/inspector", "gpui-fast?/inspector"]
 
 [dependencies]
 anyhow.workspace = true
@@ -36,13 +37,15 @@ chrono = "0.4.38"
 data-url = "0.3"
 futures = "0.3"
 gpui.workspace = true
+gpui-fast = { workspace = true, optional = true }
 gpui_macros.workspace = true
 instant.workspace = true
-itertools = "0.13.0"
+itertools = "0.15"
 lsp-types.workspace = true
 markdown = { version = "1.0.0", features = ["serde"] }
-html5ever = "0.27"
-markup5ever_rcdom = "0.3.0"
+# RcDom 0.39 implements html5ever 0.39's TreeSink; bump both when RcDom supports 0.40.
+html5ever = "0.39"
+markup5ever_rcdom = "0.39"
 num-traits = "0.2"
 ropey.workspace = true
 regex = "1"
@@ -53,6 +56,7 @@ serde_json.workspace = true
 smallvec.workspace = true
 sum-tree.workspace = true
 tracing.workspace = true
+unicode-linebreak = "0.1.5"
 unicode-segmentation = "1.12.0"
 web-time = "1"
 
@@ -78,10 +82,11 @@ windows = { workspace = true, features = ["Win32_Foundation", "Win32_UI_WindowsA
 ashpd = { version = "0.13", default-features = false, features = ["async-io", "settings"] }
 
 [dev-dependencies]
-# Must share Measurement types with the pinned GPUI bench-support snapshot.
-criterion = "0.8.2"
+criterion = "0.8"
 gpui = { workspace = true, features = ["test-support", "bench-support"] }
+gpui-fast = { workspace = true, features = ["test-support", "bench-support"] }
 gpui_platform = { workspace = true, features = ["bench-support"] }
+gpui-fast-platform = { workspace = true, features = ["bench-support"] }
 indoc = "2"
 reqwest_client.workspace = true
 

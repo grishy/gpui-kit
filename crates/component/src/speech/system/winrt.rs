@@ -16,8 +16,8 @@ use gpui::{App, AsyncApp, SharedString, Task};
 use smol::channel::{Receiver, Sender, bounded, unbounded};
 use windows::{
     Foundation::{
-        AsyncActionCompletedHandler, AsyncOperationCompletedHandler, EventRegistrationToken,
-        IAsyncAction, IAsyncOperation, TypedEventHandler,
+        AsyncActionCompletedHandler, AsyncOperationCompletedHandler, IAsyncAction, IAsyncOperation,
+        TypedEventHandler,
     },
     Globalization::Language,
     Media::SpeechRecognition::{
@@ -28,7 +28,7 @@ use windows::{
         SpeechRecognitionTopicConstraint, SpeechRecognizer as WinSpeechRecognizer,
     },
     Win32::Foundation::E_ACCESSDENIED,
-    core::{HRESULT, HSTRING, RuntimeType},
+    core::{HRESULT, HSTRING, Ref, RuntimeType},
 };
 
 use crate::speech::{AudioFormat, RecognitionSession, SpeechError, SpeechRecognizer, SpeechSink};
@@ -110,8 +110,8 @@ impl SpeechRecognizer for PlatformRecognizer {
             recognizer
                 .HypothesisGenerated(&TypedEventHandler::new({
                     let messages = messages.clone();
-                    move |_, args: &Option<SpeechRecognitionHypothesisGeneratedEventArgs>| {
-                        if let Some(args) = args {
+                    move |_, args: Ref<SpeechRecognitionHypothesisGeneratedEventArgs>| {
+                        if let Some(args) = args.as_ref() {
                             let text = args.Hypothesis()?.Text()?;
                             _ = messages.try_send(Message::Hypothesis(text));
                         }
@@ -124,8 +124,8 @@ impl SpeechRecognizer for PlatformRecognizer {
             continuous
                 .ResultGenerated(&TypedEventHandler::new({
                     let messages = messages.clone();
-                    move |_, args: &Option<SpeechContinuousRecognitionResultGeneratedEventArgs>| {
-                        if let Some(args) = args {
+                    move |_, args: Ref<SpeechContinuousRecognitionResultGeneratedEventArgs>| {
+                        if let Some(args) = args.as_ref() {
                             _ = messages.try_send(Message::Result(args.Result()?));
                         }
                         Ok(())
@@ -137,8 +137,8 @@ impl SpeechRecognizer for PlatformRecognizer {
             continuous
                 .Completed(&TypedEventHandler::new({
                     let messages = messages.clone();
-                    move |_, args: &Option<SpeechContinuousRecognitionCompletedEventArgs>| {
-                        if let Some(args) = args {
+                    move |_, args: Ref<SpeechContinuousRecognitionCompletedEventArgs>| {
+                        if let Some(args) = args.as_ref() {
                             _ = messages.try_send(Message::Completed(args.Status()?));
                         }
                         Ok(())
@@ -170,9 +170,9 @@ enum Message {
 struct Session {
     recognizer: WinSpeechRecognizer,
     continuous: SpeechContinuousRecognitionSession,
-    hypothesis_token: Option<EventRegistrationToken>,
-    result_token: Option<EventRegistrationToken>,
-    completed_token: Option<EventRegistrationToken>,
+    hypothesis_token: Option<i64>,
+    result_token: Option<i64>,
+    completed_token: Option<i64>,
     messages: Sender<Message>,
     _task: Option<Task<()>>,
 }

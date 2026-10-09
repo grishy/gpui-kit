@@ -766,7 +766,10 @@ fn emit_one_jit_acceptance_sample(cx: &mut TestAppContext) {
     }
     let hot_reload_ns = median_ns(reload_totals);
 
-    let digest = format!("{:x}", Sha256::digest(expected_tree.as_bytes()));
+    let digest: String = Sha256::digest(expected_tree.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
     let sample = serde_json::json!({
         "mode": if interpreter { "interpreter" } else { "automatic" },
         "workload": workload,

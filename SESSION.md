@@ -1,2 +1,1 @@
-﻿
-- 2026-10-03: Full cargo fmt check reports inherited formatting differences in crates/component/src/form/tests.rs:167 and crates/component/src/styled.rs:278. Changed integration files pass formatting. Keep this distinct from a clean full formatting gate.
+- 2026-10-09: The published gpui-pre 0.3.8 archive cannot compile its standalone lib tests: property_test expansion fails in randomized_element_tree.rs and svg_renderer.rs includes omitted original Zed font fixtures. Running core tests requires the original source fixture context; Kit integration regression targets remain independently executable.

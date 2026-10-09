@@ -14,7 +14,7 @@ use gpui_kit::{
     Window, WindowHandle,
     component::input::{
         CodeActionProvider, CompletionProvider, Editor, EditorState, Input, InputEvent, InputState,
-        Rope,
+        Rope, ShowCompletions,
     },
     div,
     prelude::*,
@@ -265,9 +265,32 @@ impl Fixture {
         self.settle(cx);
     }
 
+    fn set_value(&self, value: &str, cx: &mut TestAppContext) {
+        cx.update_window(self.handle.into(), |_, window, cx| {
+            self.state
+                .update(cx, |state, cx| state.set_value(value, window, cx));
+        })
+        .unwrap();
+        self.settle(cx);
+    }
+
+    fn select(&self, range: std::ops::Range<usize>, cx: &mut TestAppContext) {
+        self.state
+            .update(cx, |state, cx| state.set_selected_range(range, cx));
+        self.settle(cx);
+    }
+
     fn press(&self, key: &str, cx: &mut TestAppContext) {
         cx.update_window(self.handle.into(), |_, window, cx| window.press(key, cx))
             .unwrap();
+        self.settle(cx);
+    }
+
+    fn show_completions(&self, cx: &mut TestAppContext) {
+        cx.update_window(self.handle.into(), |_, window, cx| {
+            window.dispatch_action(Box::new(ShowCompletions), cx);
+        })
+        .unwrap();
         self.settle(cx);
     }
 
@@ -327,6 +350,267 @@ fn escape_cancels_completion_and_preserves_editor_text_and_focus(cx: &mut TestAp
 }
 
 #[gpui_kit::test]
+fn manual_opens_completion_for_the_word_before_the_caret(cx: &mut TestAppContext) {
+    let fixture = Fixture::new(cx);
+    fixture.start_completion(cx);
+    fixture.input("ri", cx);
+    fixture.press("escape", cx);
+    fixture.assert_editor("pri", cx);
+    let typed = fixture.provider.requests.borrow().len();
+
+    fixture.show_completions(cx);
+    assert_eq!(
+        fixture.provider.requests.borrow().get(typed),
+        Some(&CompletionRequest {
+            text: "pri".into(),
+            offset: 3,
+            trigger: CompletionContext {
+                trigger_kind: CompletionTriggerKind::INVOKED,
+                trigger_character: None,
+            },
+        })
+    );
+    fixture.press("enter", cx);
+    fixture.assert_editor("print", cx);
+}
+
+#[gpui_kit::test]
+fn manual_with_no_word_before_the_caret_asks_with_an_empty_query(cx: &mut TestAppContext) {
+    let fixture = Fixture::new(cx);
+    fixture.show_completions(cx);
+    assert_eq!(
+        *fixture.provider.requests.borrow(),
+        vec![CompletionRequest {
+            text: "".into(),
+            offset: 0,
+            trigger: CompletionContext {
+                trigger_kind: CompletionTriggerKind::INVOKED,
+                trigger_character: None,
+            },
+        }]
+    );
+    fixture.press("enter", cx);
+    fixture.assert_editor("print", cx);
+}
+
+#[gpui_kit::test]
+fn manual_asks_nothing_of_a_readonly_editor(cx: &mut TestAppContext) {
+    let fixture = Fixture::new(cx);
+    fixture.protect(true, false, cx);
+    fixture.show_completions(cx);
+    assert!(fixture.provider.requests.borrow().is_empty());
+}
+
+#[gpui_kit::test]
+fn manual_completion_has_no_default_shortcut_and_host_bindings_are_editor_scoped(
+    cx: &mut TestAppContext,
+) {
+    let fixture = Fixture::new(cx);
+    fixture.press("ctrl-space", cx);
+    assert!(fixture.provider.requests.borrow().is_empty());
+    cx.update(|cx| {
+        cx.bind_keys([gpui_kit::KeyBinding::new(
+            "ctrl-alt-j",
+            ShowCompletions,
+            Some("Input && mode == editor"),
+        )])
+    });
+    cx.update_window(fixture.handle.into(), |_, window, cx| {
+        window.click("other", cx);
+        window.press("ctrl-alt-j", cx);
+    })
+    .unwrap();
+    fixture.settle(cx);
+    assert!(fixture.provider.requests.borrow().is_empty());
+    cx.update_window(fixture.handle.into(), |_, window, cx| {
+        window.click(("input", fixture.state.entity_id()), cx);
+        window.press("ctrl-alt-j", cx);
+    })
+    .unwrap();
+    fixture.settle(cx);
+    assert_eq!(fixture.provider.requests.borrow().len(), 1);
+    fixture.press("enter", cx);
+    fixture.assert_editor("print", cx);
+}
+
+#[gpui_kit::test]
+fn manual_completion_keeps_an_open_menu_and_its_selected_item(cx: &mut TestAppContext) {
+    let fixture = Fixture::new(cx);
+    fixture.show_completions(cx);
+    fixture.press("down", cx);
+    fixture.show_completions(cx);
+    assert_eq!(fixture.provider.requests.borrow().len(), 1);
+    fixture.press("enter", cx);
+    fixture.assert_editor("println", cx);
+}
+
+#[gpui_kit::test]
+fn manual_completion_cancels_an_older_pending_request(cx: &mut TestAppContext) {
+    let fixture = Fixture::deferred(cx);
+    fixture.show_completions(cx);
+    fixture.show_completions(cx);
+    assert_eq!(fixture.provider.requests.borrow().len(), 2);
+    fixture.provider.respond(0, Some("private"));
+    fixture.settle(cx);
+    fixture.provider.respond(1, Some("print"));
+    fixture.settle(cx);
+    fixture.press("enter", cx);
+    fixture.assert_editor("print", cx);
+}
+
+#[gpui_kit::test]
+fn manual_completion_is_cancelled_by_escape_or_a_caret_round_trip(cx: &mut TestAppContext) {
+    for escape in [true, false] {
+        let fixture = Fixture::deferred(cx);
+        fixture.set_value("pri", cx);
+        fixture.select(3..3, cx);
+        fixture.show_completions(cx);
+        if escape {
+            fixture.press("escape", cx);
+        } else {
+            fixture.press("left", cx);
+            fixture.press("right", cx);
+        }
+        fixture.provider.respond(0, Some("print"));
+        fixture.settle(cx);
+        fixture.press("enter", cx);
+        fixture.assert_editor("pri\n", cx);
+    }
+}
+
+#[gpui_kit::test]
+fn manual_completion_does_not_request_during_ime_preedit(cx: &mut TestAppContext) {
+    use gpui_kit::{ElementInputHandler, InputHandler as _};
+    let fixture = Fixture::new(cx);
+    cx.update_window(fixture.handle.into(), |_, window, cx| {
+        let bounds = window.find(("input", fixture.state.entity_id())).bounds();
+        let mut handler = ElementInputHandler::new(bounds, fixture.state.clone());
+        handler.replace_and_mark_text_in_range(None, "中", Some(1..1), window, cx);
+        assert_eq!(handler.marked_text_range(window, cx), Some(0..1));
+    })
+    .unwrap();
+    fixture.settle(cx);
+    fixture.show_completions(cx);
+    assert!(fixture.provider.requests.borrow().is_empty());
+    cx.update_window(fixture.handle.into(), |_, window, cx| {
+        let bounds = window.find(("input", fixture.state.entity_id())).bounds();
+        let mut handler = ElementInputHandler::new(bounds, fixture.state.clone());
+        handler.replace_text_in_range(None, "中", window, cx);
+        assert_eq!(handler.marked_text_range(window, cx), None);
+    })
+    .unwrap();
+    fixture.settle(cx);
+    fixture.show_completions(cx);
+    let requests = fixture.provider.requests.borrow();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].offset, 3);
+    assert_eq!(
+        requests[0].trigger.trigger_kind,
+        CompletionTriggerKind::INVOKED
+    );
+    assert_eq!(requests[0].trigger.trigger_character, None);
+    fixture.state.read_with(cx, |state, _| {
+        assert_eq!(state.completion_menu_state().query, "中")
+    });
+}
+
+#[gpui_kit::test]
+fn manual_completion_ignores_disabled_editors_and_missing_providers(cx: &mut TestAppContext) {
+    let fixture = Fixture::new(cx);
+    fixture.protect(false, true, cx);
+    cx.update_window(fixture.handle.into(), |_, window, cx| {
+        fixture
+            .state
+            .update(cx, |state, cx| state.show_completions(window, cx));
+    })
+    .unwrap();
+    assert!(fixture.provider.requests.borrow().is_empty());
+    fixture.protect(false, false, cx);
+    fixture
+        .state
+        .update(cx, |state, _| state.lsp_mut().completion_provider = None);
+    fixture.show_completions(cx);
+    assert!(fixture.provider.requests.borrow().is_empty());
+}
+
+#[gpui_kit::test]
+fn manual_completion_clears_inline_suggestions_before_a_pending_request(cx: &mut TestAppContext) {
+    let (fixture, inline) = inline_fixture(cx, false);
+    let provider = Rc::new(Suggestions {
+        deferred: true,
+        ..Default::default()
+    });
+    fixture.state.update(cx, |state, _| {
+        state.lsp_mut().completion_provider = Some(provider.clone())
+    });
+    fixture.show_completions(cx);
+    fixture.press("tab", cx);
+    fixture.assert_editor("p  ", cx);
+    assert_eq!(inline.requests.borrow().len(), 1);
+    provider.respond(0, Some("print"));
+    fixture.settle(cx);
+    fixture.press("enter", cx);
+    fixture.assert_editor("p  \n", cx);
+}
+
+#[gpui_kit::test]
+fn manual_completion_cancels_pending_inline_debounce(cx: &mut TestAppContext) {
+    let fixture = Fixture::new(cx);
+    let inline = Rc::new(InlineSuggestions::default());
+    fixture.state.update(cx, |state, _| {
+        state.lsp_mut().completion_provider = Some(inline.clone())
+    });
+    fixture.input("p", cx);
+    assert!(inline.requests.borrow().is_empty());
+    fixture.state.update(cx, |state, _| {
+        state.lsp_mut().completion_provider = Some(fixture.provider.clone())
+    });
+    fixture.show_completions(cx);
+    cx.background_executor
+        .advance_clock(std::time::Duration::from_millis(1));
+    fixture.settle(cx);
+    assert!(inline.requests.borrow().is_empty());
+    fixture.press("enter", cx);
+    fixture.assert_editor("print", cx);
+}
+
+#[gpui_kit::test]
+fn manual_completion_replaces_the_code_action_menu(cx: &mut TestAppContext) {
+    let actions = Actions::new("Action", false);
+    let fixture = Fixture::new(cx);
+    fixture.state.update(cx, |state, _| {
+        state.lsp_mut().code_action_providers = vec![actions.clone()]
+    });
+    fixture.press(CODE_ACTIONS, cx);
+    fixture
+        .state
+        .read_with(cx, |state, _| assert!(state.code_action_menu_state().open));
+    fixture.show_completions(cx);
+    fixture
+        .state
+        .read_with(cx, |state, _| assert!(!state.code_action_menu_state().open));
+    fixture.press("enter", cx);
+    fixture.assert_editor("print", cx);
+    assert!(actions.performed.borrow().is_empty());
+}
+
+#[gpui_kit::test]
+fn manual_completion_api_focuses_the_editor_from_an_application_command(cx: &mut TestAppContext) {
+    let fixture = Fixture::new(cx);
+    cx.update_window(fixture.handle.into(), |_, window, cx| {
+        window.click("other", cx);
+        assert_eq!(window.find("other").focused(), Some(true));
+        fixture
+            .state
+            .update(cx, |state, cx| state.show_completions(window, cx));
+    })
+    .unwrap();
+    fixture.settle(cx);
+    fixture.press("enter", cx);
+    fixture.assert_editor("print", cx);
+}
+
+#[gpui_kit::test]
 fn arrow_navigation_accepts_the_selected_completion(cx: &mut TestAppContext) {
     let fixture = Fixture::new(cx);
     fixture.start_completion(cx);
@@ -360,6 +644,94 @@ fn continued_typing_refreshes_provider_filtered_suggestions(cx: &mut TestAppCont
 }
 
 #[gpui_kit::test]
+fn typing_over_a_selection_measures_the_prefix_from_where_the_text_begins(cx: &mut TestAppContext) {
+    let fixture = Fixture::new(cx);
+    // No menu has opened yet, so nothing but the replaced range locates the
+    // typed text. Replacing a longer span used to drop the request; replacing
+    // one of equal length used to hand the provider an empty prefix.
+    fixture.set_value("print", cx);
+    fixture.select(2..5, cx);
+    fixture.input("x", cx);
+    fixture.assert_editor("prx", cx);
+    fixture.select(0..1, cx);
+    fixture.input("q", cx);
+    fixture.assert_editor("qrx", cx);
+    assert_eq!(
+        *fixture.provider.requests.borrow(),
+        vec![
+            CompletionRequest {
+                text: "prx".into(),
+                offset: 3,
+                trigger: CompletionContext {
+                    trigger_kind: CompletionTriggerKind::TRIGGER_CHARACTER,
+                    trigger_character: Some("x".into()),
+                },
+            },
+            CompletionRequest {
+                text: "qrx".into(),
+                offset: 1,
+                trigger: CompletionContext {
+                    trigger_kind: CompletionTriggerKind::TRIGGER_CHARACTER,
+                    trigger_character: Some("q".into()),
+                },
+            },
+        ]
+    );
+}
+
+#[gpui_kit::test]
+fn deleting_back_into_the_word_keeps_refining_the_same_query(cx: &mut TestAppContext) {
+    let fixture = Fixture::new(cx);
+    fixture.start_completion(cx);
+    fixture.input("ri", cx);
+    fixture.press("backspace", cx);
+    fixture.input("v", cx);
+    fixture.assert_editor("prv", cx);
+    let requests = fixture.provider.requests.borrow();
+    let request = requests
+        .last()
+        .expect("completion requested after retyping");
+    assert_eq!(request.text, "prv");
+    assert_eq!(request.trigger.trigger_character.as_deref(), Some("prv"));
+}
+
+#[gpui_kit::test]
+fn typing_elsewhere_does_not_reuse_a_stale_trigger_offset(cx: &mut TestAppContext) {
+    let fixture = Fixture::new(cx);
+    fixture.start_completion(cx);
+    // Delete the word the menu opened for, then type non-trigger text and a
+    // newline. The earlier trigger offset still points at the start of the
+    // document, but nothing typed since continues that word.
+    fixture.press("backspace", cx);
+    fixture.input("!", cx);
+    fixture.press("enter", cx);
+    fixture.input("a", cx);
+    fixture.assert_editor("!\na", cx);
+    let requests = fixture.provider.requests.borrow();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[1].text, "!\na");
+    assert_eq!(requests[1].offset, 3);
+    assert_eq!(requests[1].trigger.trigger_character.as_deref(), Some("a"));
+}
+
+#[gpui_kit::test]
+fn replacing_the_document_starts_a_new_query_at_the_edit(cx: &mut TestAppContext) {
+    let fixture = Fixture::new(cx);
+    fixture.start_completion(cx);
+    // The trigger offset latched for "p" survives a programmatic replacement
+    // of the whole document; the new text at that offset is not the word the
+    // menu opened for, so typing measures from the edit, not from offset 0.
+    fixture.set_value("hello", cx);
+    fixture.select(5..5, cx);
+    fixture.input("x", cx);
+    fixture.assert_editor("hellox", cx);
+    let requests = fixture.provider.requests.borrow();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[1].offset, 6);
+    assert_eq!(requests[1].trigger.trigger_character.as_deref(), Some("x"));
+}
+
+#[gpui_kit::test]
 fn accepted_completion_is_one_undo_separate_from_the_typed_prefix(cx: &mut TestAppContext) {
     let fixture = Fixture::new(cx);
     fixture.start_completion(cx);
@@ -375,6 +747,28 @@ fn accepted_completion_is_one_undo_separate_from_the_typed_prefix(cx: &mut TestA
 
 // Each response is released explicitly. run_until_parked drains runnable work
 // without advancing timers or waiting for a response that the test still owns.
+#[gpui_kit::test]
+fn typing_after_visible_completion_keeps_the_refreshed_request_alive(cx: &mut TestAppContext) {
+    let fixture = Fixture::deferred(cx);
+    fixture.start_completion(cx);
+    fixture.provider.respond(0, Some("print"));
+    fixture.settle(cx);
+
+    // Continue typing with a visible popup, then release the refreshed response
+    // after drawing its temporarily closed state.
+    cx.update_window(fixture.handle.into(), |_, window, cx| {
+        window.input("r", cx);
+        assert_eq!(fixture.provider.requests.borrow().len(), 2);
+        fixture.provider.respond(1, Some("private"));
+    })
+    .unwrap();
+    fixture.settle(cx);
+    fixture.assert_editor("pr", cx);
+
+    fixture.press("enter", cx);
+    fixture.assert_editor("private", cx);
+}
+
 #[gpui_kit::test]
 fn older_completion_response_cannot_replace_newer_suggestions(cx: &mut TestAppContext) {
     let fixture = Fixture::deferred(cx);

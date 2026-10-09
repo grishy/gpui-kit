@@ -4,7 +4,7 @@ mod input;
 mod token;
 pub use gpui_base::input::{
     ActivateToken, InlineToken, InlineTokenClickEvent, InlineTokenContext, InlineTokenError,
-    InlineTokenSpan, InputContent,
+    InlineTokenHoverEvent, InlineTokenSpan, InputContent,
 };
 pub use token::InputToken;
 pub mod language_config;
@@ -34,8 +34,8 @@ pub use gpui_base::input::{
     MoveUp, Outdent, OutdentInline, Paste, Point, RangeDecoration, RangeDecorationCollection,
     RangeDecorationStyle, Redo, Replace, Rope, RopeExt, RopeLines, Search, SelectAll, SelectToEnd,
     SelectToEndOfLine, SelectToNextWordEnd, SelectToPreviousWordStart, SelectToStart,
-    SelectToStartOfLine, Selection, ShowCharacterPalette, ShowDocumentHandler, TabSize,
-    TextDecoration, TextDecorationCollection, TextareaState, ToggleCodeActions, Undo,
+    SelectToStartOfLine, Selection, ShowCharacterPalette, ShowCompletions, ShowDocumentHandler,
+    TabSize, TextDecoration, TextDecorationCollection, TextareaState, ToggleCodeActions, Undo,
     WrappingIndent,
 };
 pub use gpui_base::input::{EditorMode, InputMode, InputModeKind, TextareaMode};
