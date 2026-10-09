@@ -23,6 +23,7 @@ tree-sitter = ["dep:tree-sitter", "dep:tree-sitter-json"]
 # Speech input: microphone capture and the system speech recognizer.
 speech = [
     "dep:cpal",
+    "dep:windows-future",
     "dep:block2",
     "dep:objc2-speech",
     "dep:objc2-avf-audio",
@@ -238,6 +239,7 @@ objc2-speech = { version = "0.3", default-features = false, features = [
 # Native menu (NativeMenu) — drives Win32 popup menus.
 raw-window-handle = { workspace = true }
 resvg = "0.48.1"
+windows-future = { version = "0.3.2", optional = true }
 windows = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",

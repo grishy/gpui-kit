@@ -15,10 +15,7 @@ use anyhow::anyhow;
 use gpui::{App, AsyncApp, SharedString, Task};
 use smol::channel::{Receiver, Sender, bounded, unbounded};
 use windows::{
-    Foundation::{
-        AsyncActionCompletedHandler, AsyncOperationCompletedHandler, IAsyncAction, IAsyncOperation,
-        TypedEventHandler,
-    },
+    Foundation::TypedEventHandler,
     Globalization::Language,
     Media::SpeechRecognition::{
         SpeechContinuousRecognitionCompletedEventArgs,
@@ -29,6 +26,10 @@ use windows::{
     },
     Win32::Foundation::E_ACCESSDENIED,
     core::{HRESULT, HSTRING, Ref, RuntimeType},
+};
+
+use windows_future::{
+    AsyncActionCompletedHandler, AsyncOperationCompletedHandler, IAsyncAction, IAsyncOperation,
 };
 
 use crate::speech::{AudioFormat, RecognitionSession, SpeechError, SpeechRecognizer, SpeechSink};
