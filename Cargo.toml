@@ -43,7 +43,7 @@ members = [
     "crates/component-shell",
 ]
 resolver = "2"
-exclude = ["vendor/gpui-pre", "vendor/gpui-pre-windows"]
+exclude = ["vendor/gpui-pre", "vendor/gpui-pre-windows", "vendor/gpui-pre-macos"]
 
 [workspace.package]
 publish = false
@@ -181,6 +181,7 @@ cap-std = { opt-level = 3 }
 # Fork-only GPUI fixes; consumers need this override too. See docs/FORK.md.
 gpui-pre = { path = "vendor/gpui-pre" }
 gpui-pre-windows = { path = "vendor/gpui-pre-windows" }
+gpui-pre-macos = { path = "vendor/gpui-pre-macos" }
 # LLRT's public modules still name their compatible binding dependency
 # `rquickjs`. Route those dependencies through a source-compatible facade so
 # the shell and LLRT share the exact same quickjs-jit types and VM.

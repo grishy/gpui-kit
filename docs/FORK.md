@@ -9,6 +9,7 @@ List search-cursor restoration and focusable-row accessibility-label hook.
 | Owner | Invariant | Regression |
 | --- | --- | --- |
 | GPUI Windows clipboard | Writes associate the clipboard with the platform-owned message-only HWND; reads do not claim ownership, and existing text/metadata/image formats remain unchanged | Windows `platform::tests::test_clipboard` on an isolated window station |
+| GPUI macOS reopen | The AppKit delegate uses native `BOOL`; registered reopen callbacks run for either visibility flag and suppress AppKit's default handling | macOS `reopen` native integration target |
 | GPUI Div/Window | Layout and paint use the same hover policy; keyboard input and platform pointer refresh cannot leave inherited foreground stale | Kit `gpui-hover-regression` integration target |
 | GPUI Div | `aria_disabled(bool)` projects AccessKit disabled state; it does not gate input | GPUI `test_accessibility_disabled_state_can_be_set_and_cleared` |
 | Base controls | Button, Checkbox, Radio, Select and Switch project their existing disabled state and retain input gating | Kit `gpui-disabled-accessibility` and Base control tests |
@@ -39,13 +40,22 @@ archive except `Cargo.toml` (`publish = false`), `src/clipboard.rs`, and
 - SHA-256: `371f9bb13f97e3bea2f8b8e5e81232bb74d735153c244ae67f7400e743925b1c`
 - Original Zed revision: `279fe070bb389b79652e52065b2f001edcc0b11b`
 
-GPUI core and the Windows clipboard owner are patched; every other
+`vendor/gpui-pre-macos` contains the published `gpui-pre-macos 0.3.8`
+archive except `Cargo.toml` (`publish = false`, native regression target) and
+`src/platform.rs`, plus `tests/reopen.rs`. Its Apache license and original
+manifest are retained.
+
+- Archive: <https://static.crates.io/crates/gpui-pre-macos/gpui-pre-macos-0.3.8.crate>
+- SHA-256: `0d756813ff1cd741a502af60fd18869e0677795936d7349642b41c49f43120c0`
+- Original Zed revision: `279fe070bb389b79652e52065b2f001edcc0b11b`
+
+GPUI core, the Windows clipboard owner and macOS reopen are patched; every other
 platform/support crate remains on the matching published `=0.3.8` snapshot.
 This avoids a parallel Zed Git graph and does not require publishing somebody else's crate name to crates.io. The vendored source
 is deliberate fork maintenance, not a registry/cache edit or generated build step.
 
 Cargo only applies `[patch]` from the consuming workspace root. Consumers must
-pin Kit **and both** overrides to the same fork commit:
+pin Kit **and all three** overrides to the same fork commit:
 
 ```toml
 [workspace.dependencies]
@@ -54,12 +64,13 @@ gpui-kit = { git = "https://github.com/grishy/gpui-kit.git", rev = "<commit>", v
 [patch.crates-io]
 gpui-pre = { git = "https://github.com/grishy/gpui-kit.git", rev = "<same-commit>" }
 gpui-pre-windows = { git = "https://github.com/grishy/gpui-kit.git", rev = "<same-commit>" }
+gpui-pre-macos = { git = "https://github.com/grishy/gpui-kit.git", rev = "<same-commit>" }
 ```
 
 Do not depend directly on the vendored crate alongside registry GPUI: that creates
 distinct types. Regenerate the consumer lockfile, inspect `cargo tree -i gpui-pre`,
 and run its native interaction tests. Omitting the core override fails compilation
-at `aria_disabled`; the Windows override is verified by native ownership tests.
+at `aria_disabled`; the platform overrides are verified by their native owner tests.
 
 Remove each vendor directory and its root override once the matching published
 snapshot contains its fixes and passes the corresponding regressions. Reconcile
@@ -84,6 +95,32 @@ Unicode, JSON metadata, embedded-NUL normalization and mixed text/SVG roundtrips
 Cleanup clears only test-owned content whose sequence is unchanged, checking
 again while the clipboard is locked. Never run the old unguarded clipboard test
 against an interactive user's clipboard.
+
+## macOS reopen delegation
+
+AppKit's `applicationShouldHandleReopen:hasVisibleWindows:` takes and returns
+native `BOOL`. The published delegate incorrectly declares a void return and
+invokes `on_reopen` only when AppKit reports no visible windows. The patched
+delegate always dispatches a registered callback and returns `NO` so the
+application owns its window policy; without a callback it returns `YES` for
+AppKit's normal behavior. The callback still runs outside the platform lock,
+and registering a replacement during dispatch keeps the replacement.
+No public API or application-specific window policy is added.
+
+The native regression runs on the actual main thread, inspects the registered
+Objective-C method encoding and sends the selector with both visibility flags.
+It checks fallback handling, callback count, replacement and lock re-entry.
+It does not establish Dock delivery or actual minimized-window restoration;
+the consumer must verify those interactions.
+
+```sh
+cargo test --manifest-path vendor/gpui-pre-macos/Cargo.toml --test reopen --no-default-features --features runtime_shaders --config 'patch.crates-io.gpui-pre.path="vendor/gpui-pre"'
+```
+
+On the macOS ARM64 development host on 2026-10-10, the regression fails against
+the published delegate's void return encoding and passes with this patch,
+including a run with normal AppKit host access. The archive comparison confirms
+only the two declared files differ and the regression file is added.
 
 ## Windows build-tool compatibility
 
