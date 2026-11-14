@@ -507,3 +507,16 @@ For composite rows, implement `ListDelegate::item_accessibility_label` to provid
 name on the list-item container. Return `None` to leave the existing child
 semantics unchanged. The hook receives the current `IndexPath` and `App`; it does
 not change the row's visible content or selection behavior.
+
+## Scroll bounce
+
+```rust
+List::new(&state).scroll_bounce(true)
+```
+
+`scroll_bounce(true)` lets overflowing vertical content stretch at its ends and
+spring back with precise pixel scrolling, such as a trackpad or Magic Mouse
+on macOS. Ordinary mouse wheels use line scrolling and do not bounce. A new
+precise gesture or reversed precise scroll takes over the return; ordinary
+wheel input cancels it and scrolls normally. The logical scroll position remains clamped,
+and scrollbars stay fixed. Content that fits does not bounce. It is enabled by default on iOS, Android and macOS, whose own scroll views bounce, and disabled elsewhere. Reduced motion disables displacement.

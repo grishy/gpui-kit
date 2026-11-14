@@ -48,6 +48,15 @@ pub(crate) fn ensure_gtk(cx: &mut App) -> wry::Result<()> {
     Ok(())
 }
 
+/// WebKitGTK answers `prefers-color-scheme` from GTK's preference, which GTK 3 does not
+/// read from the desktop, so without this every page renders light.
+pub(crate) fn set_theme(theme: wry::Theme) {
+    use gtk::prelude::GtkSettingsExt as _;
+    if let Some(settings) = gtk::Settings::default() {
+        settings.set_gtk_application_prefer_dark_theme(matches!(theme, wry::Theme::Dark));
+    }
+}
+
 /// The GPUI window as the Xlib parent Wry requires; GPUI reports its X11 window through XCB.
 pub(crate) struct X11Parent(XlibWindowHandle);
 
@@ -147,17 +156,19 @@ pub(crate) fn forward_mouse_down(
         });
 }
 
-/// Zoom the page so its CSS pixels match GPUI's scale; GDK only supports integer scales.
-pub(crate) fn match_scale_factor(webview: &wry::WebView, scale_factor: f32) {
+/// Zoom the page so its CSS pixels match GPUI's scale (GDK only supports integer scales),
+/// times the page zoom the application asked for.
+pub(crate) fn match_scale_factor(webview: &wry::WebView, scale_factor: f32, zoom: f64) {
     use gtk::prelude::WidgetExt as _;
     use wry::WebViewExtUnix as _;
 
     let gdk_scale = webview.webview().scale_factor().max(1);
-    let _ = webview.zoom(f64::from(scale_factor) / f64::from(gdk_scale));
+    let _ = webview.zoom(f64::from(scale_factor) / f64::from(gdk_scale) * zoom);
 }
 
 /// A GPUI Fast composition surface hosting the webview: an X11 child window that GPUI cuts
 /// its overlays out of, so they render above the page.
+#[cfg(feature = "gpui-fast")]
 pub(crate) struct NativeWebViewSurface {
     surface: gpui::WindowCompositionSurface,
     scale_factor: std::cell::Cell<f32>,
@@ -165,6 +176,7 @@ pub(crate) struct NativeWebViewSurface {
     cx: gpui::AsyncApp,
 }
 
+#[cfg(feature = "gpui-fast")]
 impl NativeWebViewSurface {
     pub(crate) fn new(window: &Window, cx: &App) -> anyhow::Result<Self> {
         let surface = window
@@ -213,13 +225,28 @@ impl NativeWebViewSurface {
         Ok(())
     }
 
+    pub(crate) fn set_geometry(
+        &self,
+        webview: &wry::WebView,
+        document: Bounds<Pixels>,
+        visible: Bounds<Pixels>,
+    ) -> anyhow::Result<()> {
+        self.surface
+            .platform_surface()?
+            .set_bounds(visible.to_device_pixels(self.scale_factor.get()))?;
+        let child = Bounds::new(document.origin - visible.origin, document.size);
+        webview.set_bounds(device_bounds(child, self.scale_factor.get()))?;
+        Ok(())
+    }
+
     pub(crate) fn set_visible(&self, visible: bool) -> anyhow::Result<()> {
         self.surface.platform_surface()?.set_visible(visible)
     }
 
     pub(crate) fn release(self, webview: std::rc::Rc<wry::WebView>) {
-        // Entity destruction can occur while App is borrowed. Destroy Wry's X11 windows before
-        // removing the surface window that contains them.
+        detach_from_surface(&webview);
+        // Entity destruction can occur while App is borrowed. Drop this reference to Wry's view
+        // (other handles may keep it alive), then remove the surface window.
         self.cx
             .clone()
             .spawn(async move |cx| {
@@ -235,4 +262,48 @@ impl NativeWebViewSurface {
             })
             .detach();
     }
+}
+
+/// Move Wry's X11 window out of the composition surface window, unmapped, before the surface
+/// is removed.
+///
+/// GPUI removes the surface window through its own X11 connection, which also destroys every
+/// window inside it. GTK sends its requests for Wry's windows through another connection, so
+/// requests it makes after that (destroying them when the webview is dropped, possibly later
+/// through a `WebViewHandle`) name windows that no longer exist, and GDK aborts the process on
+/// that X11 error. Outside the surface, Wry's windows stay valid until Wry destroys them.
+#[cfg(feature = "gpui-fast")]
+fn detach_from_surface(webview: &wry::WebView) {
+    use gdkx11::{X11Display, X11Window};
+    use gtk::{glib::translate::ToGlibPtr as _, prelude::*};
+    use wry::WebViewExtUnix as _;
+    use x11::xlib;
+
+    // Wry builds its GTK window on its own X11 window (foreign to GDK), a child of the surface.
+    let Some(container) = webview
+        .webview()
+        .toplevel()
+        .and_then(|toplevel| toplevel.window())
+        .and_then(|window| window.downcast::<X11Window>().ok())
+        .map(|window| window.xid())
+    else {
+        return;
+    };
+    let Some(display) =
+        gtk::gdk::Display::default().and_then(|display| display.downcast::<X11Display>().ok())
+    else {
+        return;
+    };
+    // SAFETY: `display` is a live GdkX11Display; its Xlib connection lives as long as it.
+    let xdisplay = unsafe { gdkx11::ffi::gdk_x11_display_get_xdisplay(display.to_glib_none().0) };
+    display.error_trap_push();
+    // SAFETY: A valid Xlib connection and window; errors are caught by the trap.
+    unsafe {
+        let root = xlib::XDefaultRootWindow(xdisplay);
+        xlib::XUnmapWindow(xdisplay, container);
+        xlib::XReparentWindow(xdisplay, container, root, 0, 0);
+    }
+    // Wait until the server has moved it, so GPUI's removal of the surface comes after.
+    display.upcast_ref::<gtk::gdk::Display>().sync();
+    display.error_trap_pop_ignored();
 }

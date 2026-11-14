@@ -1,65 +1,58 @@
 # NearWord integration fork
 
-This fork follows `longbridge/gpui-kit/main`. Upstream was merged through
-`0bbd9870ce420af9feacbf948b21d3824d82dc0b` on 2026-10-09, preserving the existing
-List search-cursor restoration and focusable-row accessibility-label hook.
+This fork follows `longbridge/gpui-kit`. The current integration uses release
+`v0.9.1` (`39ab849a93b5f15507b969164d49891db8d5b470`) and its matching GPUI 0.3.12
+snapshot. NearWord uses the default GPUI backend; the optional Fast backend is
+not qualified by these patches or tests.
 
-## Ownership and contracts
+## Ownership and regressions
 
-| Owner | Invariant | Regression |
+| Owner | Retained invariant | Regression |
 | --- | --- | --- |
-| GPUI Windows clipboard | Writes associate the clipboard with the platform-owned message-only HWND; reads do not claim ownership, and existing text/metadata/image formats remain unchanged | Windows `platform::tests::test_clipboard` on an isolated window station |
-| GPUI macOS reopen | The AppKit delegate uses native `BOOL`; registered reopen callbacks run for either visibility flag and suppress AppKit's default handling | macOS `reopen` native integration target |
-| GPUI Div/Window | Layout and paint use the same hover policy; keyboard input and platform pointer refresh cannot leave inherited foreground stale | Kit `gpui-hover-regression` integration target |
-| GPUI Div | `aria_disabled(bool)` projects AccessKit disabled state; it does not gate input | GPUI `test_accessibility_disabled_state_can_be_set_and_cleared` |
-| Base controls | Button, Checkbox, Radio, Select and Switch project their existing disabled state and retain input gating | Kit `gpui-disabled-accessibility` and Base control tests |
-| Base Select | Click toggles; Expand/Collapse request an idempotent transition, share dismissal and focus paths, and are absent when disabled | Kit `gpui-select-accessibility`, Base Select tests, downstream Windows UIA flow |
-| Component searchable List | Focusable row name comes from the existing item title, independent of its visual composition | Adapter composite-item regression |
-| Component Select | Closed trigger renders the committed item, never the filtered navigation cursor | Custom-display search/empty-result/commit regression |
+| GPUI Div/Window | Layout and paint use the same hover policy after keyboard input, pointer refresh and bounds changes | Kit integration `gpui_hover_regression` |
+| GPUI Windows clipboard | Writes use the platform-owned message-only HWND; reads do not claim ownership | Windows `platform::tests::test_clipboard` on an isolated window station |
+| GPUI macOS reopen | Dispatch for either visibility flag, outside the lock; a callback owns default handling and may replace itself | macOS `reopen` native target |
+| Base Select | Click toggles; Expand/Collapse are idempotent and share focus/dismissal; disabled controls advertise no action | Kit integration `gpui_select_accessibility` |
+| Component List | Search completion restores a valid preferred cursor and scroll position | List search owner tests |
+| Component List | A composite row's accessible name belongs to the focusable container | List and searchable adapter owner tests |
+| Component Select | The trigger displays the committed item, independently of filtered navigation | Custom-display search/empty-result/commit owner test |
 
-No application colors, language catalog, window policy or WinUI code belongs in
-these fixes. The only new public method is the additive
-`StatefulInteractiveElement::aria_disabled(self, bool) -> Self` in GPUI.
+Application colors, language catalogs, window policy and WinUI code do not
+belong here. The List delegate's row-label hook remains additive. There is no
+longer a fork-only public `aria_disabled` API: upstream Base's `A11yDisabledExt`
+owns disabled projection, including its broader control coverage. The retained
+Kit `gpui_disabled_accessibility` regression checks the consumer contract and
+input gating, not a second implementation.
 
-## GPUI snapshot and consumer setup
+The new upstream Select accessibility-value handling does not itself replace
+the custom display path. Keep the display regression when reconciling that
+patch; a correct accessible value alone does not prove a stable visible label.
 
-`vendor/gpui-pre` contains the unmodified files of the published `gpui-pre 0.3.8`
-archive except `src/elements/div.rs`, `src/window.rs`, and `Cargo.toml`
-(`publish = false`, private `spin 0.12.3` and `pollster 1.0.1` updates).
-Its Apache license and original manifest are retained.
+## Snapshot provenance
 
-- Archive: <https://static.crates.io/crates/gpui-pre/gpui-pre-0.3.8.crate>
-- SHA-256: `d7f0bc3ebba070f8981b3f8e905a12f47d27794a30d029e59cdb9edf7a4b3360`
-- Original Zed revision: `279fe070bb389b79652e52065b2f001edcc0b11b`
+Each `vendor/` directory starts from the corresponding published 0.3.12 crate.
+The original manifest and Apache license are retained. The only source changes
+are the owners listed below; do not patch a Cargo registry/cache in place.
 
-`vendor/gpui-pre-windows` contains the published `gpui-pre-windows 0.3.8`
-archive except `Cargo.toml` (`publish = false`), `src/clipboard.rs`, and
-`src/platform.rs`. Its Apache license and original manifest are retained.
+| Archive | SHA-256 | Modified source |
+| --- | --- | --- |
+| [gpui-pre](https://static.crates.io/crates/gpui-pre/gpui-pre-0.3.12.crate) | `29db89613527079737f53752eab27fb65c9a7dd94979256c65a0e590c9fd34d8` | `src/elements/div.rs`, `src/window.rs` |
+| [gpui-pre-windows](https://static.crates.io/crates/gpui-pre-windows/gpui-pre-windows-0.3.12.crate) | `7201762420222d5b5ce5bdf0056996199212a3349bfb2457a3a0238c688681f3` | `src/clipboard.rs`, `src/platform.rs` |
+| [gpui-pre-macos](https://static.crates.io/crates/gpui-pre-macos/gpui-pre-macos-0.3.12.crate) | `2de7d3f4ad51ac387e822495db363fcc1188d349793365731d054444c4cb06ee` | `src/platform.rs`, added `tests/reopen.rs` |
 
-- Archive: <https://static.crates.io/crates/gpui-pre-windows/gpui-pre-windows-0.3.8.crate>
-- SHA-256: `371f9bb13f97e3bea2f8b8e5e81232bb74d735153c244ae67f7400e743925b1c`
-- Original Zed revision: `279fe070bb389b79652e52065b2f001edcc0b11b`
+Manifests disable publication. Core retains private `spin 0.12.3` and
+`pollster 1.0.1` updates; neither exposes platform types. The macOS manifest
+registers its native regression. Other snapshot dependencies retain the
+published family to preserve type identity across platform boundaries.
 
-`vendor/gpui-pre-macos` contains the published `gpui-pre-macos 0.3.8`
-archive except `Cargo.toml` (`publish = false`, native regression target) and
-`src/platform.rs`, plus `tests/reopen.rs`. Its Apache license and original
-manifest are retained.
+### Consumer setup
 
-- Archive: <https://static.crates.io/crates/gpui-pre-macos/gpui-pre-macos-0.3.8.crate>
-- SHA-256: `0d756813ff1cd741a502af60fd18869e0677795936d7349642b41c49f43120c0`
-- Original Zed revision: `279fe070bb389b79652e52065b2f001edcc0b11b`
-
-GPUI core, the Windows clipboard owner and macOS reopen are patched; every other
-platform/support crate remains on the matching published `=0.3.8` snapshot.
-This avoids a parallel Zed Git graph and does not require publishing somebody else's crate name to crates.io. The vendored source
-is deliberate fork maintenance, not a registry/cache edit or generated build step.
-
-Cargo only applies `[patch]` from the consuming workspace root. Consumers must
-pin Kit **and all three** overrides to the same fork commit:
+Cargo does not inherit a dependency's patch table. Consumers pin Kit and all
+three overrides to the same fork commit:
 
 ```toml
 [workspace.dependencies]
-gpui-kit = { git = "https://github.com/grishy/gpui-kit.git", rev = "<commit>", version = "0.7.1" }
+gpui-kit = { git = "https://github.com/grishy/gpui-kit.git", rev = "<commit>", version = "0.9.1" }
 
 [patch.crates-io]
 gpui-pre = { git = "https://github.com/grishy/gpui-kit.git", rev = "<same-commit>" }
@@ -67,149 +60,45 @@ gpui-pre-windows = { git = "https://github.com/grishy/gpui-kit.git", rev = "<sam
 gpui-pre-macos = { git = "https://github.com/grishy/gpui-kit.git", rev = "<same-commit>" }
 ```
 
-Do not depend directly on the vendored crate alongside registry GPUI: that creates
-distinct types. Regenerate the consumer lockfile, inspect `cargo tree -i gpui-pre`,
-and run its native interaction tests. Omitting the core override fails compilation
-at `aria_disabled`; the platform overrides are verified by their native owner tests.
+Regenerate the consumer lockfile and inspect `cargo tree -i gpui-pre`. Preserve
+platform `test-support` and opt-in profiler features. Never add a parallel Zed
+Git graph or commit local-path overrides. Remove each vendor directory and
+consumer override only when a matching published snapshot supplies its behavior
+and passes its owner regression.
 
-Remove each vendor directory and its root override once the matching published
-snapshot contains its fixes and passes the corresponding regressions. Reconcile
-accepted Kit fixes on each upstream merge instead of applying them twice.
+## Native contracts
 
-## Windows clipboard ownership
+Windows requires the HWND passed to `OpenClipboard` to own the data after
+`EmptyClipboard`. Published 0.3.12 still opens with NULL; the fork uses the
+already-owned platform message-only window for writes. Reads retain NULL.
+The regression verifies owner identity and text/metadata/image formats on an
+initially empty, private window station. Do not run it against a user's
+interactive clipboard. [Native contract](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-openclipboard).
 
-Windows requires the HWND passed to `OpenClipboard` to become the owner when
-`EmptyClipboard` runs. Opening with NULL loses that ownership and violates the
-`SetClipboardData` contract. The Windows platform already owns a message-only
-window for its whole lifetime; the writer now passes that HWND directly.
-Read-only access still uses NULL. No foreground-window selection, application
-workaround, new window, serialization change or format removal is introduced.
+macOS 0.3.12 already fixes the delegate ABI using objc2's native `Bool` and
+releases the platform lock before callbacks. The remaining patch invokes a
+registered callback regardless of `hasVisibleWindows`, returns `NO` when the
+callback owns reopening, and otherwise returns `YES`. Callback replacement
+survives re-entry. The native regression checks registered method encoding,
+both flags, fallback and replacement on the actual main thread. It does not
+prove Dock delivery or restoration of a real minimized consumer window.
 
-[Microsoft's OpenClipboard contract](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-openclipboard)
-defines this boundary. Both snapshot 0.3.7 and 0.3.8 contain the defect; Zed main
-`f16f9652ec57bf806e65b2a0d51bb92a63644914` still opens with NULL when inspected.
+## Automation and verification
 
-The native ownership regression requires an initially empty clipboard on an
-isolated window station. It checks the live owner HWND after each write plus
-Unicode, JSON metadata, embedded-NUL normalization and mixed text/SVG roundtrips.
-Cleanup clears only test-owned content whose sequence is unchanged, checking
-again while the clipboard is locked. Never run the old unguarded clipboard test
-against an interactive user's clipboard.
-
-## macOS reopen delegation
-
-AppKit's `applicationShouldHandleReopen:hasVisibleWindows:` takes and returns
-native `BOOL`. The published delegate incorrectly declares a void return and
-invokes `on_reopen` only when AppKit reports no visible windows. The patched
-delegate always dispatches a registered callback and returns `NO` so the
-application owns its window policy; without a callback it returns `YES` for
-AppKit's normal behavior. The callback still runs outside the platform lock,
-and registering a replacement during dispatch keeps the replacement.
-No public API or application-specific window policy is added.
-
-The native regression runs on the actual main thread, inspects the registered
-Objective-C method encoding and sends the selector with both visibility flags.
-It checks fallback handling, callback count, replacement and lock re-entry.
-It does not establish Dock delivery or actual minimized-window restoration;
-the consumer must verify those interactions.
-
-```sh
-cargo test --manifest-path vendor/gpui-pre-macos/Cargo.toml --test reopen --no-default-features --features runtime_shaders --config 'patch.crates-io.gpui-pre.path="vendor/gpui-pre"'
-```
-
-On the macOS ARM64 development host on 2026-10-10, the regression fails against
-the published delegate's void return encoding and passes with this patch,
-including a run with normal AppKit host access. The archive comparison confirms
-only the two declared files differ and the regression file is added.
-
-## Windows build-tool compatibility
-
-The 2026-10-03 lockfile combined `cc 1.2.67` with `find-msvc-tools 0.1.13`.
-On Windows, `cc/src/tempfile.rs:33` passed the latter's signed
-`FILE_ATTRIBUTE_TEMPORARY` to `OpenOptionsExt::custom_flags(u32)` and failed
-with E0308 before GPUI compiled. `find-msvc-tools 0.1.14` restores the unsigned
-compatibility export, so that refresh selected it. The current upstream
-lockfile uses the compatible `find-msvc-tools 0.1.11`; no retained override is
-needed. Updating `cc` alone was not
-possible while the workspace's `tree-sitter-sequel` requires `~1.2.1`.
-No new direct dependency, source patch or artificial version ceiling is needed.
-
-The benchmark Criterion 0.8 compatibility change is now upstream, so the fork
-uses upstream's dev dependency without a separate manifest patch.
-
-## 2026-10-09 upstream reconciliation
-
-Kit is now 0.7.1, with every `gpui-pre-*` crate on the matching `=0.3.8`
-snapshot. Snapshot 0.3.8 still lacks both core fixes above. All List cursor,
-row-name, committed Select display, Select accessibility action, and disabled
-control fixes still differ from upstream and retain their owner regressions.
-
-Upstream adds an optional `gpui-fast` backend. NearWord remains on the default
-`gpui-pre` backend; the fork's core overrides and qualification do not cover Fast.
-No backend migration is included. The compatible lockfile is refreshed; Base,
-Component, macros, Shell, FPS, gallery and examples adopt current direct
-runtime dependencies where their actual API and platform graph permit it.
-Unused Component `core-text` and gallery GTK dependencies are removed.
-
-| Remaining ceiling | Owner and removal condition |
-| --- | --- |
-| `html5ever 0.39` | Latest RcDom 0.39 implements this TreeSink; update both when a matching RcDom release supports html5ever 0.40 |
-| `tree-sitter 0.26.13` | The current external Navi example grammar links 0.26; update when its latest release supports 0.27 |
-| Shell `usvg 0.46` | Security preflight and the GPUI renderer must use the same parser; update both when the GPUI snapshot renderer advances |
-| `rsa 0.10.0-rc.18` / `pkcs1 0.8.0-rc.4` in Cargo.lock | Current LLRT uses pre-generic PKCS#1 keys; remove after LLRT adapts to the new generic key API |
-| WebView Linux GTK 0.18 | The Wry/WebKit native stack owns GTK type identity; update the stack together on a qualified Linux host |
-| Imported Windows native graph | All 24 direct declarations (23 unique crates) remain the published 0.3.8 graph; AccessKitWindows 0.34 matches AccessKit 0.24, Windows/core 0.62 and numerics 0.3 match native signatures; registry 0.6 is a qualification hold, not independently proven incompatible; update the coherent graph after native owner tests pass |
-| GPUI snapshot native/layout dependencies | AccessKit, etagere and CoreVideo types cross exact 0.3.8 platform seams; remaining imported itertools/rand, usvg/resvg, Taffy, wasm getrandom and bindgen dependencies are snapshot-qualification holds, not independently proven ABI incompatibilities; update with the snapshot and executable owner regressions |
-
-The optional Fast dependency resolves to its current compatible 0.1.6 release,
-but its accessibility parity is not qualified by this fork. GPUI's private
-mutex/executor updates do not cross platform type boundaries. All other
-vendored files remain archive-identical to their respective published archives; this is not a claim that every
-transitive dependency is at its latest incompatible major.
-
-## Fork automation and verification
-
-All five `.github/workflows` files are removed in this fork at the owner's request.
-There are no push, pull-request, scheduled or manual Actions workflows on this
-branch. Upstream history retains the definitions. This is a source-level change,
-not a claim that the repository-wide Actions permission was changed through the
-GitHub API. Keep workflows absent when merging future upstream changes.
-
-Run locally with the platform build prerequisites installed:
+Keep `.github/workflows` absent in this fork, including new workflows introduced
+by upstream merges. This preserves the owner's no-Actions policy; it does not
+claim a GitHub account-level setting or authorize publication of upstream crates.
 
 ```sh
 bun script/check-gpui-pin.ts
 cargo fmt --all -- --check
 cargo test -p gpui-base --lib --features test-support
 cargo test -p gpui-component --lib --features test-support
-cargo test -p gpui-kit --features test-support --test gpui-hover-regression --test gpui-select-accessibility --test gpui-disabled-accessibility
+cargo test -p gpui-kit --features test-support --test integration gpui_
+cargo test -p gpui-pre-macos --test reopen
 cargo clippy -p gpui-kit -p gpui-base -p gpui-component --all-targets --features gpui-kit/test-support -- -D warnings
 ```
 
 Headless tests establish control contracts, not native accessibility delivery,
-visual acceptance or macOS/Windows platform qualification. NearWord retains its
-consumer regressions and real Windows lookup harness for that boundary.
-
-### 2026-10-09 verification boundary
-
-On the macOS ARM64 development host: 1,323 Base tests, 719 Component tests,
-(including Speech and all syntax grammars), and all five focused Kit
-regressions pass. Strict all-target Clippy for Kit/Base/Component passes.
-The full workspace formatting check,
-modified core rustfmt check, GPUI pin check and merge whitespace check pass.
-The imported snapshot matches the published archive byte-for-byte outside the
-three declared core files; the Windows snapshot likewise differs only in its
-three declared files. The inherited formatting issue is fixed upstream, so its stale session note is removed.
-
-Native downstream UI, other platforms, the optional Fast backend and release
-qualification require their own evidence; these headless passes do not establish
-them.
-
-### 2026-10-10 Windows clipboard owner verification
-
-On native Windows ARM64 with Rust 1.99, the focused clipboard test passes on an
-identity-verified private window station and desktop. The otherwise-identical
-old writer (NULL owner) fails the live owner assertion on a fresh private station.
-Both fixtures begin empty, restore the parent station and close their owned
-handles. Source hashes match the committed candidate. This verifies the owning
-clipboard mechanism and existing formats, not the downstream product Copy flow.
+visual acceptance or Windows release qualification. Record current verification
+in the change review; historical 0.3.8 passes do not qualify this snapshot.

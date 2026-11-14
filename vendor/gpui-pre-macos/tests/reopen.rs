@@ -1,9 +1,12 @@
 #![cfg(target_os = "macos")]
 
-use cocoa::base::{BOOL, NO, YES, id, nil};
 use gpui::Platform;
 use gpui_macos::MacPlatform;
-use objc::{Encode, class, msg_send, sel, sel_impl};
+use objc2::{
+    Encode, class, msg_send,
+    runtime::{AnyObject, Bool},
+    sel,
+};
 use std::{cell::Cell, ffi::c_void, rc::Rc};
 
 fn main() {
@@ -12,17 +15,23 @@ fn main() {
     let selector = sel!(applicationShouldHandleReopen:hasVisibleWindows:);
     let delegate_class = class!(GPUIApplicationDelegate);
     let method = delegate_class.instance_method(selector).unwrap();
-    assert_eq!(method.return_type(), BOOL::encode());
-    assert_eq!(method.argument_type(3), Some(BOOL::encode()));
+    assert!(Bool::ENCODING.equivalent_to_str(method.return_type().to_str().unwrap()));
+    assert!(Bool::ENCODING.equivalent_to_str(method.argument_type(3).unwrap().to_str().unwrap()));
 
+    // SAFETY: this main-thread probe owns the delegate, and platform outlives its ivar.
     unsafe {
-        let delegate: id = msg_send![delegate_class, new];
-        (*delegate).set_ivar("platform", Rc::as_ptr(&platform) as *const c_void);
+        let delegate: *mut AnyObject = msg_send![delegate_class, new];
+        let ivar = delegate_class.instance_variable(c"platform").unwrap();
+        *ivar.load_ptr::<*mut c_void>(&*delegate) = Rc::as_ptr(&platform).cast_mut().cast();
 
-        for visible in [NO, YES] {
-            let result: BOOL = msg_send![delegate,
-                applicationShouldHandleReopen: nil hasVisibleWindows: visible];
-            assert_eq!(result, YES, "AppKit handles reopen without a callback");
+        for visible in [Bool::NO, Bool::YES] {
+            let result: Bool = msg_send![delegate,
+                applicationShouldHandleReopen: std::ptr::null_mut::<AnyObject>(), hasVisibleWindows: visible];
+            assert_eq!(
+                result,
+                Bool::YES,
+                "AppKit handles reopen without a callback"
+            );
         }
 
         let calls = Rc::new(Cell::new(0));
@@ -40,14 +49,14 @@ fn main() {
                 }));
         }));
 
-        for (visible, expected_calls) in [(YES, 1), (NO, 11), (YES, 21)] {
-            let result: BOOL = msg_send![delegate,
-                applicationShouldHandleReopen: nil hasVisibleWindows: visible];
-            assert_eq!(result, NO, "the application callback owns reopen");
+        for (visible, expected_calls) in [(Bool::YES, 1), (Bool::NO, 11), (Bool::YES, 21)] {
+            let result: Bool = msg_send![delegate,
+                applicationShouldHandleReopen: std::ptr::null_mut::<AnyObject>(), hasVisibleWindows: visible];
+            assert_eq!(result, Bool::NO, "the application callback owns reopen");
             assert_eq!(calls.get(), expected_calls);
         }
 
-        (*delegate).set_ivar("platform", std::ptr::null::<c_void>());
+        *ivar.load_ptr::<*mut c_void>(&*delegate) = std::ptr::null_mut();
         let _: () = msg_send![delegate, release];
     }
     println!("reopen: native BOOL ABI, both visibility flags, callback replacement passed");
