@@ -204,6 +204,9 @@ Optionally implement `preferred_selected_index` to restore the keyboard cursor t
 a specific result after searching. If that item is absent, the list highlights
 the first available row, or none when there are no results.
 
+Implement `item_accessibility_label` to give a composite row an accessible name
+independent of its rendered content.
+
 ### List with Loading State
 
 ```rust

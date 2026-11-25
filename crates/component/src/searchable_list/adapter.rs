@@ -82,6 +82,10 @@ impl<D: SearchableListDelegate + 'static> ListDelegate for SearchableListAdapter
         self.delegate.items_count(section)
     }
 
+    fn item_accessibility_label(&self, ix: IndexPath, _: &App) -> Option<SharedString> {
+        self.delegate.item(ix).map(|item| item.title())
+    }
+
     fn render_section_header(
         &mut self,
         section: usize,

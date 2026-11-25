@@ -610,10 +610,12 @@ where
         let id = SharedString::from(format!("list-item-{}", ix));
 
         let total_items = self.rows_cache.items_count();
+        let label = self.delegate.item_accessibility_label(ix, cx);
 
         div()
             .id(id)
             .role(Role::ListItem)
+            .when_some(label, |this, label| this.aria_label(label))
             .aria_position_in_set(ix.row + 1)
             .aria_size_of_set(total_items)
             .aria_selected(selected)
@@ -975,6 +977,9 @@ mod measurement_tests {
         fn items_count(&self, section: usize, _: &App) -> usize {
             self.counts[section]
         }
+        fn item_accessibility_label(&self, ix: IndexPath, _: &App) -> Option<SharedString> {
+            (ix.row == 0).then(|| "Acme, up 2 percent".into())
+        }
         fn set_selected_index(
             &mut self,
             _: Option<IndexPath>,
@@ -991,6 +996,25 @@ mod measurement_tests {
             (index.row < *self.counts.get(index.section)?)
                 .then(|| ListItem::new(index.row).h(px(if index.row == 0 { 36. } else { 48. })))
         }
+    }
+
+    #[gpui::test]
+    fn accessible_names_belong_to_the_row_container(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        cx.add_empty_window().update(|window, cx| {
+            let list = cx.new(|cx| ListState::new(Delegate { counts: vec![2] }, window, cx));
+            list.update(cx, |list, cx| {
+                for (row, label) in [(0, Some("Acme, up 2 percent")), (1, None)] {
+                    let element = list
+                        .render_list_item(IndexPath::new(row), window, cx)
+                        .into_element();
+                    let mut node = gpui::accesskit::Node::new(element.a11y_role().unwrap());
+                    element.write_a11y_info(&mut node);
+                    assert_eq!(node.role(), Role::ListItem);
+                    assert_eq!(node.label(), label);
+                }
+            });
+        });
     }
 
     struct BounceList(Entity<ListState<Delegate>>);

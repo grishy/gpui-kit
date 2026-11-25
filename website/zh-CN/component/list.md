@@ -202,6 +202,8 @@ List::new(&state)
 
 可实现 `preferred_selected_index`，在搜索后将键盘选中项恢复到指定结果。如果该项不在结果中，列表会选中第一个可用项；没有结果时则不选中任何项。
 
+实现 `item_accessibility_label` 可为包含图标、文本等内容的列表项提供独立的无障碍名称。
+
 ### 加载状态
 
 ```rust
