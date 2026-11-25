@@ -2860,10 +2860,20 @@ impl Interactivity {
     fn paint_mouse_listeners(
         &mut self,
         hitbox: &Hitbox,
-        element_state: Option<&mut InteractiveElementState>,
+        mut element_state: Option<&mut InteractiveElementState>,
         window: &mut Window,
         cx: &mut App,
     ) {
+        // Layout has no new hitbox yet. Retain the last frame's identities so
+        // it can ask the same hover policy as paint, rather than reuse a boolean
+        // that only changes on MouseMove (not keyboard or bounds changes).
+        if let Some(state) = element_state.as_mut() {
+            state.hover_hitbox = Some(hitbox.id);
+            state.group_hover_hitbox = self
+                .group_hover_style
+                .as_ref()
+                .and_then(|style| GroupHitboxes::get(&style.group, cx));
+        }
         let is_focused = self
             .tracked_focus_handle
             .as_ref()
@@ -3551,10 +3561,8 @@ impl Interactivity {
                     } else if let Some(element_state) = element_state.as_ref() {
                         !window.last_input_was_touch()
                             && element_state
-                                .hover_state
-                                .as_ref()
-                                .map(|state| state.borrow().group)
-                                .unwrap_or(false)
+                                .group_hover_hitbox
+                                .is_some_and(|hitbox| hitbox.is_hovered(window))
                     } else {
                         false
                     };
@@ -3570,10 +3578,8 @@ impl Interactivity {
                 } else if let Some(element_state) = element_state.as_ref() {
                     !window.last_input_was_touch()
                         && element_state
-                            .hover_state
-                            .as_ref()
-                            .map(|state| state.borrow().element)
-                            .unwrap_or(false)
+                            .hover_hitbox
+                            .is_some_and(|hitbox| hitbox.is_hovered(window))
                 } else {
                     false
                 };
@@ -3719,6 +3725,8 @@ pub struct InteractiveElementState {
     pub(crate) focus_handle: Option<FocusHandle>,
     pub(crate) clicked_state: Option<Rc<RefCell<ElementClickedState>>>,
     pub(crate) hover_state: Option<Rc<RefCell<ElementHoverState>>>,
+    hover_hitbox: Option<HitboxId>,
+    group_hover_hitbox: Option<HitboxId>,
     pub(crate) hover_listener_state: Option<Rc<RefCell<bool>>>,
     pub(crate) pending_mouse_down: Option<Rc<RefCell<Option<MouseDownEvent>>>>,
     /// Set to the window's [`focus_generation`](crate::Window::focus_generation)

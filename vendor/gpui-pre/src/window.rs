@@ -2273,6 +2273,12 @@ impl Window {
                 handle
                     .update(&mut cx, |_, window, _| {
                         window.hovered.set(active);
+                        // Leaving a native window need not dispatch MouseMove.
+                        // Refresh the position/hit-test before inherited layout
+                        // styles and paint decide which elements are hovered.
+                        window.mouse_position = window.platform_window.mouse_position();
+                        window.mouse_hit_test =
+                            window.rendered_frame.hit_test(window.mouse_position);
                         window.refresh();
                     })
                     .with_context(|| {
@@ -3165,6 +3171,10 @@ impl Window {
         self.last_window_bounds = self.platform_window.window_bounds();
         cx.sync_window_update_entry(self);
         self.mouse_position = self.platform_window.mouse_position();
+
+        // Bounds/activation can update the pointer without a MouseMove. Layout
+        // uses the previous frame's hitboxes, before prepaint builds new ones.
+        self.mouse_hit_test = self.rendered_frame.hit_test(self.mouse_position);
 
         self.refresh();
 
