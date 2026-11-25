@@ -496,28 +496,16 @@ where
                 .unwrap_or_else(|| t!("Select.placeholder").into()),
         );
 
-        let Some(selected_index) = self.selected_index(cx) else {
+        // The filtered list cursor is tentative; render the committed item.
+        let Some((_, item)) = self.state.selection.first() else {
             return default_title;
         };
-
-        let Some(title) = self
-            .state
-            .list
-            .read(cx)
-            .delegate()
-            .delegate
-            .item(selected_index)
-            .map(|item| {
-                if let Some(el) = item.display_title() {
-                    el
-                } else if let Some(prefix) = self.title_prefix.as_ref() {
-                    format!("{}{}", prefix, item.title()).into_any_element()
-                } else {
-                    item.title().into_any_element()
-                }
-            })
-        else {
-            return default_title;
+        let title = if let Some(el) = item.display_title() {
+            el
+        } else if let Some(prefix) = self.title_prefix.as_ref() {
+            format!("{}{}", prefix, item.title()).into_any_element()
+        } else {
+            item.title().into_any_element()
         };
 
         div()
@@ -1032,7 +1020,7 @@ mod tests {
             assert_eq!(
                 state.read(cx).selected_index(cx),
                 Some(IndexPath::new(1)),
-                "initial cursor should be seeded on ListState so display_title can read it",
+                "initial cursor should be seeded on ListState for keyboard navigation",
             );
             assert_eq!(state.read(cx).selected_value(), Some(&"Go"));
         });
@@ -1295,5 +1283,83 @@ mod tests {
             }
             assert_eq!(renders.get(), rendered, "the page was built again");
         }
+    }
+}
+
+#[cfg(test)]
+mod displayed_value_tests {
+    use super::*;
+    use gpui::{AppContext as _, TestAppContext};
+    use std::{cell::Cell, rc::Rc};
+
+    #[derive(Clone)]
+    struct CompositeItem {
+        name: &'static str,
+        rendered: Rc<Cell<&'static str>>,
+    }
+
+    impl SearchableListItem for CompositeItem {
+        type Value = &'static str;
+        fn title(&self) -> SharedString {
+            self.name.into()
+        }
+        fn value(&self) -> &Self::Value {
+            &self.name
+        }
+        fn display_title(&self) -> Option<AnyElement> {
+            self.rendered.set(self.name);
+            Some(div().child(div().child(self.name)).into_any_element())
+        }
+    }
+
+    #[gpui::test]
+    fn searching_does_not_change_the_displayed_committed_value(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let window = cx.add_empty_window();
+        window.update(|window, cx| {
+            let rendered = Rc::new(Cell::new(""));
+            let items = SearchableVec::new(
+                ["English", "Japanese"]
+                    .into_iter()
+                    .map(|name| CompositeItem {
+                        name,
+                        rendered: rendered.clone(),
+                    })
+                    .collect::<Vec<_>>(),
+            );
+            let state = cx.new(|cx| {
+                SelectState::new(items, Some(IndexPath::new(0)), window, cx).searchable(true)
+            });
+            let list = state.read(cx).state.list.clone();
+            for (query, expected_cursor) in [
+                ("Japanese", Some(IndexPath::new(0))),
+                ("no-match", None),
+                ("", Some(IndexPath::new(0))),
+            ] {
+                list.update(cx, |list, cx| list.set_query(query, window, cx));
+                assert_eq!(list.read(cx).selected_index(), expected_cursor);
+                assert_eq!(state.read(cx).accessibility_value(), "English");
+                rendered.set("");
+                state.update(cx, |state, cx| {
+                    let _ = state.display_title(window, cx);
+                });
+                assert_eq!(
+                    rendered.get(),
+                    "English",
+                    "Filtering must not replace the committed trigger image/text"
+                );
+            }
+            state.update(cx, |state, cx| {
+                state.set_selected_value(&"Japanese", window, cx)
+            });
+            rendered.set("");
+            state.update(cx, |state, cx| {
+                let _ = state.display_title(window, cx);
+            });
+            assert_eq!(rendered.get(), "Japanese");
+            assert_eq!(state.read(cx).accessibility_value(), "Japanese");
+            list.update(cx, |list, cx| list.set_query("e", window, cx));
+            assert_eq!(list.read(cx).selected_index(), Some(IndexPath::new(1)));
+        });
     }
 }

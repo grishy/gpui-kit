@@ -82,6 +82,10 @@ impl<D: SearchableListDelegate + 'static> ListDelegate for SearchableListAdapter
         self.delegate.items_count(section)
     }
 
+    fn item_accessibility_label(&self, ix: IndexPath, _: &App) -> Option<SharedString> {
+        self.delegate.item(ix).map(|item| item.title())
+    }
+
     fn render_section_header(
         &mut self,
         section: usize,
@@ -181,6 +185,11 @@ impl<D: SearchableListDelegate + 'static> ListDelegate for SearchableListAdapter
     ) -> gpui::Task<()> {
         self.query = SharedString::from(query.to_string());
         self.delegate.perform_search(query, window, cx)
+    }
+
+    fn preferred_selected_index(&self, _: &App) -> Option<IndexPath> {
+        let selected_value = self.selection_snapshot.first()?.1.value();
+        self.delegate.position(selected_value)
     }
 
     fn set_selected_index(
