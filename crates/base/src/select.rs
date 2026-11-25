@@ -223,21 +223,41 @@ impl RenderOnce for Select {
             .when(!disabled, |this| {
                 let on_open_change = on_open_change.clone();
                 let content_focus_handle = content_focus_handle.clone();
-                let close = close.clone();
-
-                // Platform adapters may flatten the trigger child.
-                // Expose activation on the semantic root itself.
-                this.on_a11y_action(AccessibleAction::Click, move |_, window, cx| {
+                let expand: ActionHandler = Rc::new(move |window, cx| {
                     if open {
-                        close(window, cx);
                         return;
                     }
-
                     if let Some(handler) = on_open_change.as_ref() {
                         handler(true, window, cx);
                     }
                     if let Some(handle) = content_focus_handle.as_ref() {
                         handle.focus(window, cx);
+                    }
+                });
+
+                // Platform adapters may flatten the trigger child. Register on
+                // the semantic root: Windows ExpandCollapsePattern dispatches
+                // Expand/Collapse, not Click. Repeated requests are idempotent.
+                this.on_a11y_action(AccessibleAction::Click, {
+                    let expand = expand.clone();
+                    let close = close.clone();
+                    move |_, window, cx| {
+                        if open {
+                            close(window, cx);
+                        } else {
+                            expand(window, cx);
+                        }
+                    }
+                })
+                .on_a11y_action(AccessibleAction::Expand, move |_, window, cx| {
+                    expand(window, cx);
+                })
+                .on_a11y_action(AccessibleAction::Collapse, {
+                    let close = close.clone();
+                    move |_, window, cx| {
+                        if open {
+                            close(window, cx);
+                        }
                     }
                 })
             })
@@ -588,8 +608,14 @@ mod tests {
                 Some(true),
                 "a disabled control still reports the state it is in"
             );
-            assert!(enabled.supports_action(accesskit::Action::Click));
-            assert!(!disabled.supports_action(accesskit::Action::Click));
+            for action in [
+                accesskit::Action::Click,
+                accesskit::Action::Expand,
+                accesskit::Action::Collapse,
+            ] {
+                assert!(enabled.supports_action(action));
+                assert!(!disabled.supports_action(action));
+            }
         });
     }
 
