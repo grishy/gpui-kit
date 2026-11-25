@@ -1331,8 +1331,13 @@ mod displayed_value_tests {
                 SelectState::new(items, Some(IndexPath::new(0)), window, cx).searchable(true)
             });
             let list = state.read(cx).state.list.clone();
-            for query in ["Japanese", "no-match", ""] {
+            for (query, expected_cursor) in [
+                ("Japanese", Some(IndexPath::new(0))),
+                ("no-match", None),
+                ("", Some(IndexPath::new(0))),
+            ] {
                 list.update(cx, |list, cx| list.set_query(query, window, cx));
+                assert_eq!(list.read(cx).selected_index(), expected_cursor);
                 assert_eq!(state.read(cx).accessibility_value(), "English");
                 rendered.set("");
                 state.update(cx, |state, cx| {
@@ -1353,6 +1358,8 @@ mod displayed_value_tests {
             });
             assert_eq!(rendered.get(), "Japanese");
             assert_eq!(state.read(cx).accessibility_value(), "Japanese");
+            list.update(cx, |list, cx| list.set_query("e", window, cx));
+            assert_eq!(list.read(cx).selected_index(), Some(IndexPath::new(1)));
         });
     }
 }

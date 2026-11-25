@@ -36,7 +36,9 @@ struct Harness {
 
 impl Render for Harness {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        (self.build)(TextColor(self.color.clone()))
+        div()
+            .p(px(16.))
+            .child((self.build)(TextColor(self.color.clone())))
     }
 }
 
@@ -75,13 +77,16 @@ fn content_color(
         }
     });
     cx.update(|window, cx| window.draw(cx).clear(cx));
-    if hovered {
-        let content = cx
-            .debug_bounds("content")
-            .expect("the content must lay out");
-        cx.simulate_mouse_move(content.center(), None, Modifiers::none());
-        cx.update(|window, cx| window.draw(cx).clear(cx));
-    }
+    let pointer = if hovered {
+        cx.debug_bounds("content")
+            .expect("the content must lay out")
+            .center()
+    } else {
+        // Inside the window padding, but outside the row.
+        gpui::point(px(1.), px(1.))
+    };
+    cx.simulate_mouse_move(pointer, None, Modifiers::none());
+    cx.update(|window, cx| window.draw(cx).clear(cx));
     color.get().expect("the content must render")
 }
 
