@@ -86,7 +86,7 @@ pub struct ListState<D: ListDelegate> {
     pub(crate) query_input: Entity<InputState>,
     options: ListOptions,
     delegate: D,
-    last_query: Option<String>,
+    requested_query: Option<String>,
     scroll_handle: VirtualListScrollHandle,
     rows_cache: RowsCache,
     selected_index: Option<IndexPath>,
@@ -120,7 +120,7 @@ where
             delegate,
             rows_cache: RowsCache::default(),
             query_input,
-            last_query: None,
+            requested_query: None,
             selected_index: None,
             selectable: true,
             searchable: false,
@@ -303,7 +303,7 @@ where
             InputEvent::Change => {
                 let text = state.read(cx).value();
                 let text = text.trim().to_string();
-                if Some(&text) == self.last_query.as_ref() {
+                if Some(&text) == self.requested_query.as_ref() {
                     return;
                 }
 
@@ -326,6 +326,7 @@ where
 
     /// Drop the search in flight, with whatever its delegate task still had to do.
     pub(crate) fn cancel_search(&mut self) {
+        self.requested_query = None;
         self._search_task = Task::ready(());
     }
 
@@ -334,11 +335,16 @@ where
             .any(|section| self.delegate.items_count(section, cx) > 0)
     }
 
+    fn item_exists(&self, ix: IndexPath, cx: &App) -> bool {
+        ix.section < self.delegate.sections_count(cx).max(1)
+            && ix.row < self.delegate.items_count(ix.section, cx)
+    }
+
     /// Whether the selection still points at a row: results that arrive after
     /// it was made may have fewer.
     pub(crate) fn selected_item_exists(&self, cx: &App) -> bool {
         self.selected_index
-            .is_some_and(|ix| ix.row < self.delegate.items_count(ix.section, cx))
+            .is_some_and(|ix| self.item_exists(ix, cx))
     }
 
     /// Select the first row, even before the rows have been laid out.
@@ -381,6 +387,7 @@ where
     ) {
         self.set_searching(true, window, cx);
         let search = self.delegate.perform_search(&query, window, cx);
+        self.requested_query = Some(query);
 
         self.reset_search_cursor(highlight_first, window, cx);
         let initial_cursor = self.selected_index;
@@ -389,12 +396,15 @@ where
             search.await;
 
             _ = this.update_in(window, |this, window, cx| {
-                // Results can arrive asynchronously. Do not undo a later keyboard
-                // move or a caller's explicit selection while the search ran.
-                if this.selected_index == initial_cursor {
+                // Keep a later selection (including an explicit clear), unless
+                // the new results removed its row or section.
+                if this.selected_index == initial_cursor
+                    || this
+                        .selected_index
+                        .is_some_and(|ix| !this.item_exists(ix, cx))
+                {
                     this.reset_search_cursor(highlight_first, window, cx);
                 }
-                this.last_query = Some(query);
                 cx.notify();
             });
 
@@ -417,15 +427,11 @@ where
     ) {
         let cursor = highlight_first
             .then(|| {
-                let mut sections = 0..self.delegate.sections_count(cx).max(1);
                 self.delegate
                     .preferred_selected_index(cx)
-                    .filter(|ix| {
-                        sections.contains(&ix.section)
-                            && ix.row < self.delegate.items_count(ix.section, cx)
-                    })
+                    .filter(|&ix| self.item_exists(ix, cx))
                     .or_else(|| {
-                        sections
+                        (0..self.delegate.sections_count(cx).max(1))
                             .find(|section| self.delegate.items_count(*section, cx) > 0)
                             .map(|section| IndexPath::default().section(section))
                     })
@@ -1201,7 +1207,7 @@ mod measurement_tests {
 }
 
 #[cfg(test)]
-mod search_cursor_tests {
+mod search_tests {
     use super::*;
     use crate::list::ListItem;
     use gpui::TestAppContext;
@@ -1226,10 +1232,15 @@ mod search_cursor_tests {
                 return Task::ready(());
             }
             let query = query.to_owned();
+            let delay =
+                (query == "ab").then(|| cx.background_executor().timer(Duration::from_secs(1)));
             cx.spawn(async move |list, cx| {
+                if let Some(delay) = delay {
+                    delay.await;
+                }
                 list.update(cx, |list, _| {
                     let delegate = &mut list.delegate;
-                    delegate.counts = if query == "empty" {
+                    delegate.counts = if query == "empty" || query == "ab" {
                         vec![0, 0]
                     } else {
                         vec![0, 3]
@@ -1267,22 +1278,78 @@ mod search_cursor_tests {
         }
     }
 
+    fn new_list(
+        counts: Vec<usize>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Entity<ListState<SearchDelegate>> {
+        cx.new(|cx| {
+            ListState::new(
+                SearchDelegate {
+                    counts,
+                    preferred: None,
+                },
+                window,
+                cx,
+            )
+        })
+    }
+
+    #[gpui::test]
+    fn deleting_text_cancels_the_superseded_search(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let executor = cx.executor().clone();
+        let window = cx.add_empty_window();
+        let list = window.update(|window, cx| new_list(vec![0], window, cx));
+        let input = window.update(|_, cx| list.read(cx).query_input.clone());
+        for text in ["a", "ab", "a"] {
+            window.update(|window, cx| {
+                input.update(cx, |input, cx| {
+                    input.set_value(text, window, cx);
+                    cx.emit(InputEvent::Change);
+                })
+            });
+            window.run_until_parked();
+        }
+        executor.advance_clock(Duration::from_secs(1));
+        window.run_until_parked();
+        window.update(|_, cx| assert_eq!(list.read(cx).delegate().counts, [0, 3]));
+    }
+
+    #[gpui::test]
+    fn search_preserves_only_moves_that_still_exist(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let window = cx.add_empty_window();
+        let row = Some(IndexPath::new(1).section(1));
+        let removed_section = Some(IndexPath::new(0).section(2));
+        for (query, moved_to, expected) in [
+            ("empty", row, None),
+            ("preferred", row, row),
+            (
+                "preferred",
+                removed_section,
+                Some(IndexPath::new(2).section(1)),
+            ),
+            ("preferred", None, None),
+        ] {
+            let list = window.update(|window, cx| {
+                let list = new_list(vec![1, 3, 1], window, cx);
+                list.update(cx, |list, cx| {
+                    list.set_query(query, window, cx);
+                    list.set_selected_index(moved_to, window, cx);
+                });
+                list
+            });
+            window.run_until_parked();
+            window.update(|_, cx| assert_eq!(list.read(cx).selected_index(), expected));
+        }
+    }
+
     #[gpui::test]
     fn search_restores_cursor_after_results_arrive(cx: &mut TestAppContext) {
         cx.update(crate::init);
         let window = cx.add_empty_window();
-        let list = window.update(|window, cx| {
-            cx.new(|cx| {
-                ListState::new(
-                    SearchDelegate {
-                        counts: vec![1],
-                        preferred: None,
-                    },
-                    window,
-                    cx,
-                )
-            })
-        });
+        let list = window.update(|window, cx| new_list(vec![1], window, cx));
         for (query, expected) in [
             ("preferred", Some(IndexPath::new(2).section(1))),
             ("invalid", Some(IndexPath::new(0).section(1))),
