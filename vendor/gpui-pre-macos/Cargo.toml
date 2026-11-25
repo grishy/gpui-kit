@@ -54,6 +54,11 @@ name = "gpui_macos"
 path = "src/gpui_macos.rs"
 doctest = false
 
+[[test]]
+name = "reopen"
+path = "tests/reopen.rs"
+harness = false
+
 [dependencies.gpui]
 version = "=0.3.14"
 default-features = false

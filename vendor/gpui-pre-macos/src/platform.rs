@@ -1422,18 +1422,18 @@ extern "C-unwind" fn should_handle_reopen(
     this: &AnyObject,
     _: Sel,
     _: *mut AnyObject,
-    has_open_windows: Bool,
+    _: Bool,
 ) -> Bool {
-    if !has_open_windows.as_bool() {
-        let platform = unsafe { get_mac_platform(this) };
-        let mut lock = platform.0.lock();
-        if let Some(mut callback) = lock.reopen.take() {
-            drop(lock);
-            callback();
-            platform.0.lock().reopen.get_or_insert(callback);
-        }
+    let platform = unsafe { get_mac_platform(this) };
+    let mut lock = platform.0.lock();
+    if let Some(mut callback) = lock.reopen.take() {
+        drop(lock);
+        callback();
+        platform.0.lock().reopen.get_or_insert(callback);
+        Bool::NO
+    } else {
+        Bool::YES
     }
-    Bool::YES
 }
 
 extern "C-unwind" fn will_terminate(this: &AnyObject, _: Sel, _: *mut AnyObject) {
