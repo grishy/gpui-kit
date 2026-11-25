@@ -43,6 +43,14 @@ members = [
     "crates/shell",
 ]
 resolver = "2"
+exclude = ["vendor/gpui-pre", "vendor/gpui-pre-macos", "vendor/gpui-pre-windows"]
+
+# Keep Kit tests on the same GPUI implementation that NearWord ships.
+# Cargo does not inherit this table; downstream overrides point to this Git revision.
+[patch.crates-io]
+gpui-pre = { path = "vendor/gpui-pre" }
+gpui-pre-macos = { path = "vendor/gpui-pre-macos" }
+gpui-pre-windows = { path = "vendor/gpui-pre-windows" }
 
 [workspace.package]
 publish = false
