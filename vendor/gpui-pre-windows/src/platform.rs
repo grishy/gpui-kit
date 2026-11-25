@@ -1028,7 +1028,8 @@ impl Platform for WindowsPlatform {
     }
 
     fn write_to_clipboard(&self, item: ClipboardItem) {
-        write_to_clipboard(item);
+        // The platform owns this message-only HWND until Drop, on this thread.
+        write_to_clipboard(self.handle, item);
     }
 
     fn read_from_clipboard(&self) -> Option<ClipboardItem> {
@@ -1918,18 +1919,26 @@ unsafe fn username_and_password(credential: &CREDENTIALW) -> Result<(String, Vec
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
     use std::ffi::{OsStr, OsString};
 
     use crate::clipboard::read_raw_clipboard_text;
-    use crate::{read_from_clipboard, write_to_clipboard};
-    use gpui::ClipboardItem;
+    use crate::read_from_clipboard;
+    use gpui::{ClipboardEntry, ClipboardItem, Image, ImageFormat, Platform};
     use windows::Win32::Security::Credentials::{
         CRED_PERSIST_SESSION, CRED_TYPE_GENERIC, CREDENTIALW, CredDeleteW, CredFree, CredReadW,
         CredWriteW,
     };
+    use windows::Win32::{
+        Foundation::{ERROR_SUCCESS, GetLastError, HWND, SetLastError},
+        System::DataExchange::{
+            CloseClipboard, CountClipboardFormats, EmptyClipboard, GetClipboardOwner,
+            GetClipboardSequenceNumber, OpenClipboard,
+        },
+    };
     use windows::core::{PCWSTR, PWSTR};
 
-    use super::{encode_restart_arguments, username_and_password};
+    use super::{WindowsPlatform, encode_restart_arguments, username_and_password};
 
     #[test]
     fn test_read_credential_with_username() {
@@ -2002,21 +2011,80 @@ mod tests {
 
     #[test]
     fn test_clipboard() {
+        // Run on an isolated window station. Never replace a user's clipboard.
+        // SAFETY: the native fixture provides a private station. This only queries
+        // format count under the clipboard lock; it reads or replaces no payload.
+        let (formats, error) = unsafe {
+            OpenClipboard(None).expect("open isolated clipboard");
+            SetLastError(ERROR_SUCCESS);
+            let formats = CountClipboardFormats();
+            let error = GetLastError();
+            CloseClipboard().expect("close isolated clipboard");
+            (formats, error)
+        };
+        assert_eq!(error, ERROR_SUCCESS, "query isolated clipboard formats");
+        assert_eq!(
+            formats, 0,
+            "clipboard regression requires an empty clipboard"
+        );
+
+        let platform = WindowsPlatform::new(true).expect("create clipboard owner window");
+        struct Cleanup {
+            owner: HWND,
+            sequence: Cell<u32>,
+        }
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                // SAFETY: cleanup drops before its live owner platform on this
+                // thread. Only our unchanged content is cleared, while locked.
+                unsafe {
+                    if self.sequence.get() == 0
+                        || GetClipboardOwner().ok() != Some(self.owner)
+                        || GetClipboardSequenceNumber() != self.sequence.get()
+                        || OpenClipboard(Some(self.owner)).is_err()
+                    {
+                        return;
+                    }
+                    // Recheck while locked: only clear our unchanged test data.
+                    if GetClipboardOwner().ok() == Some(self.owner)
+                        && GetClipboardSequenceNumber() == self.sequence.get()
+                    {
+                        let _ = EmptyClipboard();
+                    }
+                    let _ = CloseClipboard();
+                }
+            }
+        }
+        let cleanup = Cleanup {
+            owner: platform.handle,
+            sequence: Cell::new(0),
+        };
+        let write = |item| {
+            platform.write_to_clipboard(item);
+            // SAFETY: the fixture's private clipboard and owner window remain
+            // live on this thread; these calls only query ownership metadata.
+            unsafe {
+                let sequence = GetClipboardSequenceNumber();
+                cleanup.sequence.set(sequence);
+                assert_ne!(sequence, 0, "query clipboard write sequence");
+                assert_eq!(GetClipboardOwner().ok(), Some(platform.handle));
+            }
+        };
         let item = ClipboardItem::new_string("你好，我是张小白".to_string());
-        write_to_clipboard(item.clone());
+        write(item.clone());
         assert_eq!(read_from_clipboard(), Some(item));
 
         let item = ClipboardItem::new_string("12345".to_string());
-        write_to_clipboard(item.clone());
+        write(item.clone());
         assert_eq!(read_from_clipboard(), Some(item));
 
         let item = ClipboardItem::new_string_with_json_metadata("abcdef".to_string(), vec![3, 4]);
-        write_to_clipboard(item.clone());
+        write(item.clone());
         assert_eq!(read_from_clipboard(), Some(item));
 
         let item =
             ClipboardItem::new_string_with_json_metadata("before\0after".to_string(), vec![12]);
-        write_to_clipboard(item);
+        write(item);
         assert_eq!(
             read_from_clipboard(),
             Some(ClipboardItem::new_string_with_json_metadata(
@@ -2026,13 +2094,13 @@ mod tests {
         );
 
         let item = ClipboardItem::new_string_with_json_metadata("a\nb\nc".to_string(), vec![5]);
-        write_to_clipboard(item.clone());
+        write(item.clone());
         assert_eq!(read_raw_clipboard_text().as_deref(), Some("a\r\nb\r\nc"));
         assert_eq!(read_from_clipboard(), Some(item));
 
         let item =
             ClipboardItem::new_string_with_json_metadata("a\r\nb\nc\rd".to_string(), vec![6]);
-        write_to_clipboard(item);
+        write(item);
         assert_eq!(read_raw_clipboard_text().as_deref(), Some("a\r\nb\r\nc\rd"));
         assert_eq!(
             read_from_clipboard(),
@@ -2041,5 +2109,15 @@ mod tests {
                 vec![6],
             )),
         );
+
+        let image = Image::from_bytes(
+            ImageFormat::Svg,
+            b"<svg xmlns='http://www.w3.org/2000/svg'/>".to_vec(),
+        );
+        let mut mixed =
+            ClipboardItem::new_string_with_json_metadata("text with image".into(), vec![1, 2]);
+        mixed.entries.push(ClipboardEntry::Image(image));
+        write(mixed.clone());
+        assert_eq!(read_from_clipboard(), Some(mixed));
     }
 }
