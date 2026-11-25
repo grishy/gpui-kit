@@ -24,18 +24,18 @@ Do not restore upstream Actions workflows in the fork.
 | GPUI Windows | Writes use the existing clipboard owner HWND; reads do not claim ownership | Platform clipboard unit test on a private Windows window station |
 | GPUI macOS | Reopen invokes the callback for either visibility flag, outside the lock | macOS `reopen` test: native ABI, re-entry and fallback |
 | Base Select | Click toggles; accessibility Expand/Collapse are idempotent and unavailable when disabled | Base library and NearWord `gpui-select-accessibility` tests |
-| Component List and Select | Focusable rows have names; search restores a valid cursor and shows the committed Select value | Component library tests and NearWord pickers |
+| Component List and Select | Focusable rows have names; only the latest query wins; search preserves a valid cursor and shows the committed Select value | Component library tests and NearWord pickers |
 
 ## What to send upstream
 
-Start each Kit PR from upstream main. Cherry-pick just one fix, not this
-integration branch; Kit fixes do not need the vendored GPUI snapshots.
+Start each Kit PR from upstream main. Take the commits for one row, not this integration
+branch; Kit fixes do not need the vendored GPUI snapshots.
 
 | Kit commit | Scope |
 | --- | --- |
 | `fb033ab9` | Base Select: support explicit Expand/Collapse in addition to the Click action from [#2973](https://github.com/longbridge/gpui-kit/pull/2973). |
 | `1c2450c6` | Component Select: show the committed value while filtering, including a custom title. |
-| `e1507b9a` | Component List: restore a valid keyboard cursor after synchronous or asynchronous search. |
+| `e1507b9a`, `c6aa4637` | Component List: restore a valid cursor after search, preserve user moves that still exist, and cancel stale results when typing back to an earlier query. |
 
 **Not a Kit PR as written:** `cfb3b54d` keeps NearWord's accessible row names.
 The maintainer asked for the **item**, not the list delegate, to own its
@@ -50,6 +50,16 @@ and `9e225cdc` (macOS reopen) independently to the corresponding crates in
 manifests or fork wiring. Once Zed ships a fix in Kit's selected GPUI snapshot,
 verify the regression without our patch and remove the override if it is no
 longer needed.
+
+### Windows clipboard regression
+
+Ordinary test runs skip this test. To run it, create a fresh window station
+named `NearWordClipboard-<UUID>`, create a desktop in it, and launch the
+Windows platform test binary on that desktop with
+`platform::tests::test_clipboard --exact --ignored`. The test checks its
+actual station before accessing the clipboard. Closing the fixture discards
+the test clipboard; do not clear the interactive clipboard as setup. Include
+this guard when porting the clipboard owner test upstream.
 
 ## Consumer
 

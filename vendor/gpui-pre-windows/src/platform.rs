@@ -1028,7 +1028,7 @@ impl Platform for WindowsPlatform {
     }
 
     fn write_to_clipboard(&self, item: ClipboardItem) {
-        // The platform owns this message-only HWND until Drop, on this thread.
+        // The platform owns this hidden HWND until Drop, on this thread.
         write_to_clipboard(self.handle, item);
     }
 
@@ -1919,7 +1919,6 @@ unsafe fn username_and_password(credential: &CREDENTIALW) -> Result<(String, Vec
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
     use std::ffi::{OsStr, OsString};
 
     use crate::clipboard::read_raw_clipboard_text;
@@ -1930,10 +1929,10 @@ mod tests {
         CredWriteW,
     };
     use windows::Win32::{
-        Foundation::{ERROR_SUCCESS, GetLastError, HWND, SetLastError},
-        System::DataExchange::{
-            CloseClipboard, CountClipboardFormats, EmptyClipboard, GetClipboardOwner,
-            GetClipboardSequenceNumber, OpenClipboard,
+        Foundation::HANDLE,
+        System::{
+            DataExchange::GetClipboardOwner,
+            StationsAndDesktops::{GetProcessWindowStation, GetUserObjectInformationW, UOI_NAME},
         },
     };
     use windows::core::{PCWSTR, PWSTR};
@@ -2010,65 +2009,37 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires a disposable NearWordClipboard-<UUID> window station"]
     fn test_clipboard() {
-        // Run on an isolated window station. Never replace a user's clipboard.
-        // SAFETY: the native fixture provides a private station. This only queries
-        // format count under the clipboard lock; it reads or replaces no payload.
-        let (formats, error) = unsafe {
-            OpenClipboard(None).expect("open isolated clipboard");
-            SetLastError(ERROR_SUCCESS);
-            let formats = CountClipboardFormats();
-            let error = GetLastError();
-            CloseClipboard().expect("close isolated clipboard");
-            (formats, error)
-        };
-        assert_eq!(error, ERROR_SUCCESS, "query isolated clipboard formats");
-        assert_eq!(
-            formats, 0,
-            "clipboard regression requires an empty clipboard"
+        // Check the actual station before touching its clipboard. An empty
+        // clipboard on the interactive desktop is still the user's clipboard.
+        let mut buffer = [0u16; 256];
+        // SAFETY: the station is borrowed from this process. The buffer is
+        // writable for its supplied byte length; UOI_NAME is NUL-terminated.
+        unsafe {
+            let station = GetProcessWindowStation().expect("get process window station");
+            GetUserObjectInformationW(
+                HANDLE(station.0),
+                UOI_NAME,
+                Some(buffer.as_mut_ptr().cast()),
+                std::mem::size_of_val(&buffer) as u32,
+                None,
+            )
+            .expect("get window station name");
+        }
+        let end = buffer.iter().position(|&ch| ch == 0).unwrap();
+        let name = String::from_utf16(&buffer[..end]).unwrap();
+        assert!(
+            name.strip_prefix("NearWordClipboard-")
+                .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok()),
+            "refusing clipboard test outside a disposable test station: {name}"
         );
 
         let platform = WindowsPlatform::new(true).expect("create clipboard owner window");
-        struct Cleanup {
-            owner: HWND,
-            sequence: Cell<u32>,
-        }
-        impl Drop for Cleanup {
-            fn drop(&mut self) {
-                // SAFETY: cleanup drops before its live owner platform on this
-                // thread. Only our unchanged content is cleared, while locked.
-                unsafe {
-                    if self.sequence.get() == 0
-                        || GetClipboardOwner().ok() != Some(self.owner)
-                        || GetClipboardSequenceNumber() != self.sequence.get()
-                        || OpenClipboard(Some(self.owner)).is_err()
-                    {
-                        return;
-                    }
-                    // Recheck while locked: only clear our unchanged test data.
-                    if GetClipboardOwner().ok() == Some(self.owner)
-                        && GetClipboardSequenceNumber() == self.sequence.get()
-                    {
-                        let _ = EmptyClipboard();
-                    }
-                    let _ = CloseClipboard();
-                }
-            }
-        }
-        let cleanup = Cleanup {
-            owner: platform.handle,
-            sequence: Cell::new(0),
-        };
         let write = |item| {
             platform.write_to_clipboard(item);
-            // SAFETY: the fixture's private clipboard and owner window remain
-            // live on this thread; these calls only query ownership metadata.
-            unsafe {
-                let sequence = GetClipboardSequenceNumber();
-                cleanup.sequence.set(sequence);
-                assert_ne!(sequence, 0, "query clipboard write sequence");
-                assert_eq!(GetClipboardOwner().ok(), Some(platform.handle));
-            }
+            // SAFETY: this only queries the owner of the private clipboard.
+            assert_eq!(unsafe { GetClipboardOwner() }.ok(), Some(platform.handle));
         };
         let item = ClipboardItem::new_string("你好，我是张小白".to_string());
         write(item.clone());
