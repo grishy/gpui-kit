@@ -200,6 +200,8 @@ let state = cx.new(|cx| ListState::new(delegate, window, cx).searchable(true));
 List::new(&state)
 ```
 
+可实现 `preferred_selected_index`，在搜索后将键盘选中项恢复到指定结果。如果该项不在结果中，列表会选中第一个可用项；没有结果时则不选中任何项。
+
 ### 加载状态
 
 ```rust

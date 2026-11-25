@@ -382,18 +382,20 @@ where
         self.set_searching(true, window, cx);
         let search = self.delegate.perform_search(&query, window, cx);
 
-        if highlight_first && self.rows_cache.len() > 0 {
-            self._set_selected_index(Some(IndexPath::default()), window, cx);
-        } else {
-            self._set_selected_index(None, window, cx);
-        }
+        self.reset_search_cursor(highlight_first, window, cx);
+        let initial_cursor = self.selected_index;
 
         self._search_task = cx.spawn_in(window, async move |this, window| {
             search.await;
 
-            _ = this.update_in(window, |this, _, _| {
-                this.scroll_handle.scroll_to_item(0, ScrollStrategy::Top);
+            _ = this.update_in(window, |this, window, cx| {
+                // Results can arrive asynchronously. Do not undo a later keyboard
+                // move or a caller's explicit selection while the search ran.
+                if this.selected_index == initial_cursor {
+                    this.reset_search_cursor(highlight_first, window, cx);
+                }
                 this.last_query = Some(query);
+                cx.notify();
             });
 
             // Always wait 100ms to avoid flicker
@@ -405,6 +407,33 @@ where
                 this.set_searching(false, window, cx);
             });
         });
+    }
+
+    fn reset_search_cursor(
+        &mut self,
+        highlight_first: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let cursor = highlight_first
+            .then(|| {
+                let mut sections = 0..self.delegate.sections_count(cx).max(1);
+                self.delegate
+                    .preferred_selected_index(cx)
+                    .filter(|ix| {
+                        sections.contains(&ix.section)
+                            && ix.row < self.delegate.items_count(ix.section, cx)
+                    })
+                    .or_else(|| {
+                        sections
+                            .find(|section| self.delegate.items_count(*section, cx) > 0)
+                            .map(|section| IndexPath::default().section(section))
+                    })
+            })
+            .flatten();
+        self.deferred_scroll_to_index = None;
+        self.scroll_handle.scroll_to_item(0, ScrollStrategy::Top);
+        self._set_selected_index(cursor, window, cx);
     }
 
     fn set_searching(&mut self, searching: bool, window: &mut Window, cx: &mut Context<Self>) {
@@ -1144,5 +1173,109 @@ mod measurement_tests {
                 div()
             },
         );
+    }
+}
+
+#[cfg(test)]
+mod search_cursor_tests {
+    use super::*;
+    use crate::list::ListItem;
+    use gpui::TestAppContext;
+
+    struct SearchDelegate {
+        counts: Vec<usize>,
+        preferred: Option<IndexPath>,
+    }
+
+    impl ListDelegate for SearchDelegate {
+        type Item = ListItem;
+
+        fn perform_search(
+            &mut self,
+            query: &str,
+            _: &mut Window,
+            cx: &mut Context<ListState<Self>>,
+        ) -> Task<()> {
+            if query == "sync" {
+                self.counts = vec![0, 2];
+                self.preferred = None;
+                return Task::ready(());
+            }
+            let query = query.to_owned();
+            cx.spawn(async move |list, cx| {
+                list.update(cx, |list, _| {
+                    let delegate = &mut list.delegate;
+                    delegate.counts = if query == "empty" {
+                        vec![0, 0]
+                    } else {
+                        vec![0, 3]
+                    };
+                    delegate.preferred =
+                        Some(IndexPath::new(if query == "preferred" { 2 } else { 99 }).section(1));
+                })
+                .unwrap();
+            })
+        }
+
+        fn preferred_selected_index(&self, _: &App) -> Option<IndexPath> {
+            self.preferred
+        }
+        fn sections_count(&self, _: &App) -> usize {
+            self.counts.len()
+        }
+        fn items_count(&self, section: usize, _: &App) -> usize {
+            self.counts[section]
+        }
+        fn set_selected_index(
+            &mut self,
+            _: Option<IndexPath>,
+            _: &mut Window,
+            _: &mut Context<ListState<Self>>,
+        ) {
+        }
+        fn render_item(
+            &mut self,
+            _: IndexPath,
+            _: &mut Window,
+            _: &mut Context<ListState<Self>>,
+        ) -> Option<ListItem> {
+            None
+        }
+    }
+
+    #[gpui::test]
+    fn search_restores_cursor_after_results_arrive(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let window = cx.add_empty_window();
+        let list = window.update(|window, cx| {
+            cx.new(|cx| {
+                ListState::new(
+                    SearchDelegate {
+                        counts: vec![1],
+                        preferred: None,
+                    },
+                    window,
+                    cx,
+                )
+            })
+        });
+        for (query, expected) in [
+            ("preferred", Some(IndexPath::new(2).section(1))),
+            ("invalid", Some(IndexPath::new(0).section(1))),
+            ("empty", None),
+            ("sync", Some(IndexPath::new(0).section(1))),
+        ] {
+            window
+                .update(|window, cx| list.update(cx, |list, cx| list.set_query(query, window, cx)));
+            window.run_until_parked();
+            window.update(|_, cx| {
+                let list = list.read(cx);
+                assert_eq!(list.selected_index(), expected);
+                assert_eq!(
+                    list.deferred_scroll_to_index.map(|(index, _)| index),
+                    expected
+                );
+            });
+        }
     }
 }

@@ -200,6 +200,10 @@ let state = cx.new(|cx| ListState::new(delegate, window, cx).searchable(true));
 List::new(&state)
 ```
 
+Optionally implement `preferred_selected_index` to restore the keyboard cursor to
+a specific result after searching. If that item is absent, the list highlights
+the first available row, or none when there are no results.
+
 ### List with Loading State
 
 ```rust
